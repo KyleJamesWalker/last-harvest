@@ -11,16 +11,28 @@ pub struct HttpStore;
 /// network that takes milliseconds.
 fn request(method: &str, url: &str, body: Option<&[u8]>) -> Result<(u16, Vec<u8>), String> {
     let x = XmlHttpRequest::new().map_err(|e| format!("{e:?}"))?;
-    x.open_with_async(method, url, false).map_err(|e| format!("{e:?}"))?;
+    x.open_with_async(method, url, false)
+        .map_err(|e| format!("{e:?}"))?;
     // A synchronous request can't ask for bytes, so it takes each byte as one character.
-    x.override_mime_type("text/plain; charset=x-user-defined").map_err(|e| format!("{e:?}"))?;
-    x.send_with_opt_u8_array(body).map_err(|_| "the sprite server isn't answering".to_string())?;
-    let text = x.response_text().map_err(|e| format!("{e:?}"))?.unwrap_or_default();
-    Ok((x.status().unwrap_or(0), text.chars().map(|c| c as u32 as u8).collect()))
+    x.override_mime_type("text/plain; charset=x-user-defined")
+        .map_err(|e| format!("{e:?}"))?;
+    x.send_with_opt_u8_array(body)
+        .map_err(|_| "the sprite server isn't answering".to_string())?;
+    let text = x
+        .response_text()
+        .map_err(|e| format!("{e:?}"))?
+        .unwrap_or_default();
+    Ok((
+        x.status().unwrap_or(0),
+        text.chars().map(|c| c as u32 as u8).collect(),
+    ))
 }
 
 fn get(url: &str) -> Option<Vec<u8>> {
-    request("GET", url, None).ok().filter(|(status, _)| *status == 200).map(|(_, b)| b)
+    request("GET", url, None)
+        .ok()
+        .filter(|(status, _)| *status == 200)
+        .map(|(_, b)| b)
 }
 
 fn put(url: &str, body: &[u8]) -> Result<(), String> {
@@ -37,7 +49,10 @@ fn utf8(b: Vec<u8>) -> String {
 impl Store for HttpStore {
     fn names(&self) -> Vec<(String, bool)> {
         let text = get("api/names").map(utf8).unwrap_or_default();
-        text.lines().filter_map(|l| l.split_once('\t')).map(|(n, saved)| (n.to_string(), saved == "1")).collect()
+        text.lines()
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(n, saved)| (n.to_string(), saved == "1"))
+            .collect()
     }
 
     fn read(&self, name: &str, file: &str) -> Option<Vec<u8>> {
@@ -45,7 +60,10 @@ impl Store for HttpStore {
     }
 
     fn save(&self, sprite: &Sprite) -> Result<(), String> {
-        put(&format!("api/sprite/{}", sprite.name), &bundle(&sprite.files()))
+        put(
+            &format!("api/sprite/{}", sprite.name),
+            &bundle(&sprite.files()),
+        )
     }
 
     fn stand(&self, name: &str) -> Option<String> {
@@ -74,7 +92,12 @@ impl Store for HttpStore {
     }
 
     fn map_ids(&self) -> Vec<String> {
-        get("api/maps").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+        get("api/maps")
+            .map(utf8)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn read_map(&self, id: &str) -> Option<String> {
@@ -94,11 +117,21 @@ impl Store for HttpStore {
     }
 
     fn sound_groups(&self) -> Vec<String> {
-        get("api/sounds").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+        get("api/sounds")
+            .map(utf8)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn farm_ids(&self) -> Vec<String> {
-        get("api/farms").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+        get("api/farms")
+            .map(utf8)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn delete_table(&self, file: &str) -> Result<(), String> {

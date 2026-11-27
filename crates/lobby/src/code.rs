@@ -35,13 +35,20 @@ impl RoomCode {
 
     /// A typed code: any case, spaces and dashes ignored.
     pub fn parse(text: &str) -> Result<RoomCode, CodeError> {
-        let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace() && *c != '-').map(|c| c.to_ascii_uppercase()).collect();
+        let chars: Vec<char> = text
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '-')
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
         if chars.len() != CODE_LEN {
             return Err(CodeError::Length(chars.len()));
         }
         let mut code = [0; CODE_LEN];
         for (slot, c) in code.iter_mut().zip(chars) {
-            *slot = u8::try_from(c).ok().filter(|b| ALPHABET.contains(b)).ok_or(CodeError::Character(c))?;
+            *slot = u8::try_from(c)
+                .ok()
+                .filter(|b| ALPHABET.contains(b))
+                .ok_or(CodeError::Character(c))?;
         }
         Ok(RoomCode(code))
     }
@@ -52,7 +59,11 @@ impl RoomCode {
 
     /// The signaling room URL on a relay such as `wss://relay.example.com`.
     pub fn room_url(&self, relay: &str) -> String {
-        format!("{}/signal/last-harvest-{}", relay.trim_end_matches('/'), self.as_str())
+        format!(
+            "{}/signal/last-harvest-{}",
+            relay.trim_end_matches('/'),
+            self.as_str()
+        )
     }
 }
 
@@ -79,16 +90,27 @@ mod tests {
 
     #[test]
     fn look_alike_characters_are_refused() {
-        for c in ['O', '0', 'I', '1', 'L', 'S', '5', 'Z', '2', 'B', '8', 'G', 'é'] {
-            assert_eq!(RoomCode::parse(&format!("ACDE{c}")), Err(CodeError::Character(c)));
+        for c in [
+            'O', '0', 'I', '1', 'L', 'S', '5', 'Z', '2', 'B', '8', 'G', 'é',
+        ] {
+            assert_eq!(
+                RoomCode::parse(&format!("ACDE{c}")),
+                Err(CodeError::Character(c))
+            );
         }
         assert_eq!(RoomCode::parse("ACD"), Err(CodeError::Length(3)));
-        assert_eq!(CodeError::Length(3).to_string(), "A room code has 5 characters, not 3.");
+        assert_eq!(
+            CodeError::Length(3).to_string(),
+            "A room code has 5 characters, not 3."
+        );
     }
 
     #[test]
     fn a_code_names_a_signaling_room() {
         let code = RoomCode::parse("AC3JK").unwrap();
-        assert_eq!(code.room_url("wss://relay.example.com/"), "wss://relay.example.com/signal/last-harvest-AC3JK");
+        assert_eq!(
+            code.room_url("wss://relay.example.com/"),
+            "wss://relay.example.com/signal/last-harvest-AC3JK"
+        );
     }
 }

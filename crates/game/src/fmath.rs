@@ -63,10 +63,27 @@ mod tests {
             let x = i as f32 * 0.000_37 * std::f32::consts::PI;
             let near = |a: f32, b: f32| (a - b).abs() <= 2.0 * f32::EPSILON * b.abs().max(1.0);
             #[allow(clippy::disallowed_methods)]
-            let want = [x.sin(), x.cos(), x.tan(), x.atan2(0.7), (x * 0.01).exp(), x.hypot(3.0)];
-            let got = [sin(x), cos(x), tan(x), atan2(x, 0.7), exp(x * 0.01), hypot(x, 3.0)];
+            let want = [
+                x.sin(),
+                x.cos(),
+                x.tan(),
+                x.atan2(0.7),
+                (x * 0.01).exp(),
+                x.hypot(3.0),
+            ];
+            let got = [
+                sin(x),
+                cos(x),
+                tan(x),
+                atan2(x, 0.7),
+                exp(x * 0.01),
+                hypot(x, 3.0),
+            ];
             for (k, (g, w)) in got.into_iter().zip(want).enumerate() {
-                assert!(near(g, w) || k == 2 && w.abs() > 1e4, "fn {k} at {x}: {g} against std's {w}");
+                assert!(
+                    near(g, w) || k == 2 && w.abs() > 1e4,
+                    "fn {k} at {x}: {g} against std's {w}"
+                );
             }
             assert_eq!(sin_cos(x), (sin(x), cos(x)), "{x}");
         }

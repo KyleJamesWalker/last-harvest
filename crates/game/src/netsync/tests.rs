@@ -1,10 +1,10 @@
-use crate::fmath as fm;
 use super::events::Event;
 use super::input::{InputFrame, InputLog, InputMsg, InputQueue};
 use super::link::{ClientLink, HostLink};
 use super::mirror::{CATCH_UP, Mirror, RUN, SNAP};
 use super::pipe::Pipe;
 use super::snapshot::*;
+use crate::fmath as fm;
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 
@@ -19,7 +19,13 @@ struct Sim {
 
 impl Sim {
     fn new(seed: u64, n: usize) -> Self {
-        let mut s = Sim { rng: Rng::new(seed), tick: 0, next_id: 1, zombies: Vec::new(), drops: Vec::new() };
+        let mut s = Sim {
+            rng: Rng::new(seed),
+            tick: 0,
+            next_id: 1,
+            zombies: Vec::new(),
+            drops: Vec::new(),
+        };
         for _ in 0..n {
             s.add();
         }
@@ -60,16 +66,51 @@ impl Sim {
     }
 
     fn world(&self) -> World {
-        let players = vec![PlayerState { pos: q_pos([1200.0, 900.0]), yaw: q_angle(1.0), hp: 400, max_hp: 400, speed: 60 * 16, kit: vec![(1, 3), (7, 2)], ..Default::default() }];
-        let zombies = self.zombies.iter().map(|z| ZombieState { id: z.3, kind: z.2, pos: q_pos(z.0), hp: 255, flags: if z.3 % 50 == 0 { Z_LEADER } else { 0 } }).collect();
-        let mut things: Vec<Thing> = self.drops.iter().map(|&p| Thing { kind: T_MONEY, pos: q_pos(p), data: [5, 0, 0], ..Default::default() }).collect();
-        things.extend((0..8).map(|i| Thing { kind: T_BARREL, pos: q_pos([100.0 + i as f32 * 64.0, 300.0]), data: [255, 0, 0], ..Default::default() }));
+        let players = vec![PlayerState {
+            pos: q_pos([1200.0, 900.0]),
+            yaw: q_angle(1.0),
+            hp: 400,
+            max_hp: 400,
+            speed: 60 * 16,
+            kit: vec![(1, 3), (7, 2)],
+            ..Default::default()
+        }];
+        let zombies = self
+            .zombies
+            .iter()
+            .map(|z| ZombieState {
+                id: z.3,
+                kind: z.2,
+                pos: q_pos(z.0),
+                hp: 255,
+                flags: if z.3 % 50 == 0 { Z_LEADER } else { 0 },
+            })
+            .collect();
+        let mut things: Vec<Thing> = self
+            .drops
+            .iter()
+            .map(|&p| Thing {
+                kind: T_MONEY,
+                pos: q_pos(p),
+                data: [5, 0, 0],
+                ..Default::default()
+            })
+            .collect();
+        things.extend((0..8).map(|i| Thing {
+            kind: T_BARREL,
+            pos: q_pos([100.0 + i as f32 * 64.0, 300.0]),
+            data: [255, 0, 0],
+            ..Default::default()
+        }));
         World::new(self.tick, players, zombies, things)
     }
 }
 
 fn decode_all(packets: &[Vec<u8>], base: Option<&World>) -> World {
-    let parts: Vec<Part> = packets.iter().map(|p| decode(p, base).expect("decodes")).collect();
+    let parts: Vec<Part> = packets
+        .iter()
+        .map(|p| decode(p, base).expect("decodes"))
+        .collect();
     World::assemble(&parts)
 }
 
@@ -83,11 +124,31 @@ fn a_whole_snapshot_reads_back() {
 
 #[test]
 fn a_soaked_zombies_flag_reads_back_whole_and_as_a_delta() {
-    let zombie = |flags| ZombieState { id: 7, kind: 0, pos: q_pos([100.0, 100.0]), hp: 255, flags };
+    let zombie = |flags| ZombieState {
+        id: 7,
+        kind: 0,
+        pos: q_pos([100.0, 100.0]),
+        hp: 255,
+        flags,
+    };
     let dry = World::new(1, Vec::new(), vec![zombie(Z_BURNING)], Vec::new());
-    let soaked = World::new(2, Vec::new(), vec![zombie(Z_BURNING | Z_SOAKED)], Vec::new());
-    assert_eq!(decode_all(&encode(&soaked, None, 1, &[], &[], BUDGET), None), soaked);
-    assert_eq!(decode_all(&encode(&soaked, Some(&dry), 1, &[], &[], BUDGET), Some(&dry)), soaked);
+    let soaked = World::new(
+        2,
+        Vec::new(),
+        vec![zombie(Z_BURNING | Z_SOAKED)],
+        Vec::new(),
+    );
+    assert_eq!(
+        decode_all(&encode(&soaked, None, 1, &[], &[], BUDGET), None),
+        soaked
+    );
+    assert_eq!(
+        decode_all(
+            &encode(&soaked, Some(&dry), 1, &[], &[], BUDGET),
+            Some(&dry)
+        ),
+        soaked
+    );
 }
 
 #[test]
@@ -98,7 +159,10 @@ fn a_delta_reads_back_over_its_baseline_and_is_smaller() {
         sim.step();
     }
     let w = sim.world();
-    let full: usize = encode(&w, None, 1, &[], &[], BUDGET).iter().map(Vec::len).sum();
+    let full: usize = encode(&w, None, 1, &[], &[], BUDGET)
+        .iter()
+        .map(Vec::len)
+        .sum();
     let packets = encode(&w, Some(&base), 1, &[], &[], BUDGET);
     let delta: usize = packets.iter().map(Vec::len).sum();
     assert_eq!(decode_all(&packets, Some(&base)), w);
@@ -132,7 +196,11 @@ fn a_big_snapshot_splits_into_parts_that_each_decode_alone() {
     for b in [None, Some(&base)] {
         let packets = encode(&w, b, 1, &[(1, Event::LevelDone)], &[], BUDGET);
         assert!(packets.len() > 1);
-        assert!(packets.iter().all(|p| p.len() <= BUDGET), "{:?}", packets.iter().map(Vec::len).collect::<Vec<_>>());
+        assert!(
+            packets.iter().all(|p| p.len() <= BUDGET),
+            "{:?}",
+            packets.iter().map(Vec::len).collect::<Vec<_>>()
+        );
         for p in &packets {
             let part = decode(p, b).expect("each part decodes alone");
             assert_eq!(part.players, w.players);
@@ -161,7 +229,10 @@ fn snapshot_sizes_at_300_and_600_zombies() {
         let (full, full_n) = size(None);
         let (d1, d1_n) = size(history.last());
         let (d4, d4_n) = size(Some(&history[history.len() - 4]));
-        println!("{n} zombies: full {full} B in {full_n} packets; delta vs 1 back {d1} B in {d1_n}; vs 4 back (~200 ms RTT) {d4} B in {d4_n}; at 20 Hz {} KB/s", d4 * 20 / 1024);
+        println!(
+            "{n} zombies: full {full} B in {full_n} packets; delta vs 1 back {d1} B in {d1_n}; vs 4 back (~200 ms RTT) {d4} B in {d4_n}; at 20 Hz {} KB/s",
+            d4 * 20 / 1024
+        );
         assert!(d4 < full);
     }
 }
@@ -180,7 +251,18 @@ fn twenty_percent_loss_and_reordering_still_converge_and_events_come_once_in_ord
         sim.step();
         let t = sim.tick;
         if t.is_multiple_of(7) {
-            let ev = if t.is_multiple_of(14) { Event::Kill { id: t, kind: 1, pos: [1, 2], by: 0 } } else { Event::LevelUp { level: (t % 200) as u8 } };
+            let ev = if t.is_multiple_of(14) {
+                Event::Kill {
+                    id: t,
+                    kind: 1,
+                    pos: [1, 2],
+                    by: 0,
+                }
+            } else {
+                Event::LevelUp {
+                    level: (t % 200) as u8,
+                }
+            };
             host.push_event(t, ev);
             made.push(ev);
         }
@@ -201,7 +283,15 @@ fn twenty_percent_loss_and_reordering_still_converge_and_events_come_once_in_ord
         mirror.advance(1.0 / TICK_HZ as f32);
         if t.is_multiple_of(2) {
             let (s, e) = client.ack();
-            up.send(t, InputMsg { ack_snapshot: s, ack_event: e, seats: vec![] }.encode());
+            up.send(
+                t,
+                InputMsg {
+                    ack_snapshot: s,
+                    ack_event: e,
+                    seats: vec![],
+                }
+                .encode(),
+            );
         }
         for m in up.receive(t) {
             let m = InputMsg::decode(&m).expect("input decodes");
@@ -225,7 +315,15 @@ fn twenty_percent_loss_and_reordering_still_converge_and_events_come_once_in_ord
         got.extend(client.events().into_iter().filter(Event::critical));
         mirror.advance(1.0 / TICK_HZ as f32);
         let (s, e) = client.ack();
-        up.send(t, InputMsg { ack_snapshot: s, ack_event: e, seats: vec![] }.encode());
+        up.send(
+            t,
+            InputMsg {
+                ack_snapshot: s,
+                ack_event: e,
+                seats: vec![],
+            }
+            .encode(),
+        );
         for m in up.receive(t) {
             let m = InputMsg::decode(&m).expect("input decodes");
             host.ack(m.ack_snapshot, m.ack_event);
@@ -248,7 +346,16 @@ fn twenty_percent_loss_and_reordering_still_converge_and_events_come_once_in_ord
 #[test]
 fn a_zombie_behind_catches_up_at_a_capped_speed_and_snaps_when_far() {
     let z = |tick, x| {
-        let w = World::new(tick, vec![], vec![ZombieState { id: 9, pos: q_pos([x, 100.0]), ..Default::default() }], vec![]);
+        let w = World::new(
+            tick,
+            vec![],
+            vec![ZombieState {
+                id: 9,
+                pos: q_pos([x, 100.0]),
+                ..Default::default()
+            }],
+            vec![],
+        );
         decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap()
     };
     let dt = 1.0 / 60.0;
@@ -265,7 +372,11 @@ fn a_zombie_behind_catches_up_at_a_capped_speed_and_snaps_when_far() {
         }
         m.advance(dt);
         let x = m.zombie_pos(9).unwrap()[0];
-        assert!(x - before <= (CATCH_UP + RUN) * dt + 1e-3, "moved {} in a frame", x - before);
+        assert!(
+            x - before <= (CATCH_UP + RUN) * dt + 1e-3,
+            "moved {} in a frame",
+            x - before
+        );
         lagged |= x < 130.0 && x - before > 0.0;
         before = x;
     }
@@ -285,9 +396,23 @@ fn the_host_plays_a_clients_input_once_each_tick_despite_loss() {
     let mut pipe: Pipe<Vec<u8>> = Pipe::new(3, 0.2, 4, 3);
     let mut played = Vec::new();
     for t in 1..=600u32 {
-        log.push(t, InputFrame { held: t, ..Default::default() });
+        log.push(
+            t,
+            InputFrame {
+                held: t,
+                ..Default::default()
+            },
+        );
         if t.is_multiple_of(super::input::SEND_EVERY) {
-            pipe.send(t, InputMsg { ack_snapshot: None, ack_event: 0, seats: vec![log.seat(1)] }.encode());
+            pipe.send(
+                t,
+                InputMsg {
+                    ack_snapshot: None,
+                    ack_event: 0,
+                    seats: vec![log.seat(1)],
+                }
+                .encode(),
+            );
         }
         for m in pipe.receive(t) {
             q.receive(&InputMsg::decode(&m).unwrap().seats[0]);
@@ -304,9 +429,20 @@ fn the_host_plays_a_clients_input_once_each_tick_despite_loss() {
 #[test]
 fn ticks_at_the_top_of_the_range_neither_overflow_nor_play() {
     let mut q = InputQueue::default();
-    q.receive(&super::input::SeatInputs { seat: 1, last: u32::MAX, frames: vec![InputFrame::default(); 8] });
-    assert!(q.play().1.is_some_and(|t| t > u32::MAX - 8), "the newest ticks play; nothing wraps");
-    let msg = InputMsg { ack_snapshot: Some(u32::MAX), ack_event: u32::MAX, seats: vec![] };
+    q.receive(&super::input::SeatInputs {
+        seat: 1,
+        last: u32::MAX,
+        frames: vec![InputFrame::default(); 8],
+    });
+    assert!(
+        q.play().1.is_some_and(|t| t > u32::MAX - 8),
+        "the newest ticks play; nothing wraps"
+    );
+    let msg = InputMsg {
+        ack_snapshot: Some(u32::MAX),
+        ack_event: u32::MAX,
+        seats: vec![],
+    };
     assert!(InputMsg::decode(&msg.encode()).is_some());
     let mut inbox = super::events::Inbox::default();
     inbox.receive(u32::MAX, &[(u32::MAX, Event::LevelDone)]);
@@ -318,14 +454,27 @@ fn ticks_at_the_top_of_the_range_neither_overflow_nor_play() {
 fn a_quiet_seat_lets_go_of_its_buttons_and_is_marked_away() {
     let mut log = InputLog::default();
     let mut q = InputQueue::default();
-    log.push(1, InputFrame { held: crate::Buttons::UP.0, stick: [0, -127], ..Default::default() });
+    log.push(
+        1,
+        InputFrame {
+            held: crate::Buttons::UP.0,
+            stick: [0, -127],
+            ..Default::default()
+        },
+    );
     q.receive(&log.seat(1));
     assert!(q.play().0.held.contains(crate::Buttons::UP));
     for _ in 0..super::input::STALE_TICKS {
-        assert!(q.play().0.held.contains(crate::Buttons::UP), "a short gap holds the last input");
+        assert!(
+            q.play().0.held.contains(crate::Buttons::UP),
+            "a short gap holds the last input"
+        );
     }
     let (i, _) = q.play();
-    assert!(i.held == crate::Buttons::NONE && i.stick == [0.0; 2], "a long one lets go");
+    assert!(
+        i.held == crate::Buttons::NONE && i.stick == [0.0; 2],
+        "a long one lets go"
+    );
     while q.quiet() <= super::input::AWAY_TICKS {
         q.play();
     }
@@ -337,7 +486,9 @@ fn a_quiet_seat_lets_go_of_its_buttons_and_is_marked_away() {
 #[test]
 fn a_hostile_host_cant_grow_the_clients_queues() {
     let mut inbox = super::events::Inbox::default();
-    let far: Vec<(u32, Event)> = (0..20_000u32).map(|i| (2 + i * 3, Event::LevelDone)).collect();
+    let far: Vec<(u32, Event)> = (0..20_000u32)
+        .map(|i| (2 + i * 3, Event::LevelDone))
+        .collect();
     inbox.receive(1, &far);
     assert!(inbox.drain().is_empty());
     let mut link = ClientLink::default();
@@ -350,27 +501,62 @@ fn a_hostile_host_cant_grow_the_clients_queues() {
         assert!(packets.len() > 1, "a world big enough to come in parts");
         link.receive(&packets[0]);
     }
-    assert!(link.building_for_test() <= 8, "unfinished snapshots are bounded: {}", link.building_for_test());
+    assert!(
+        link.building_for_test() <= 8,
+        "unfinished snapshots are bounded: {}",
+        link.building_for_test()
+    );
 }
 
 #[test]
 fn pets_cross_whole_then_as_small_deltas_and_their_set_changing_resends_keys() {
-    let dog = |owner: u8, slot: u8, x: f32| PetState { owner, def: 300, slot, pos: q_pos([x, 50.0]), heading: 64, anim: 640, leap: 0, heart: 0 };
+    let dog = |owner: u8, slot: u8, x: f32| PetState {
+        owner,
+        def: 300,
+        slot,
+        pos: q_pos([x, 50.0]),
+        heading: 64,
+        anim: 640,
+        leap: 0,
+        heart: 0,
+    };
     let mut a = World::new(10, vec![PlayerState::default()], vec![], vec![]);
     a.pets = vec![dog(0, 0, 100.0), dog(0, 1, 120.0), dog(1, 0, 400.0)];
     let whole = decode(&encode(&a, None, 1, &[], &[], BUDGET)[0], None).unwrap();
     assert_eq!(whole.pets.as_deref(), Some(&a.pets[..]));
-    let mut b = World { tick: 13, ..a.clone() };
-    b.pets[1] = PetState { pos: q_pos([121.5, 50.0]), anim: 643, leap: 128, heart: 4, ..b.pets[1] };
-    let (big, small) = (encode(&a, None, 1, &[], &[], BUDGET)[0].len(), encode(&b, Some(&a), 1, &[], &[], BUDGET)[0].len());
+    let mut b = World {
+        tick: 13,
+        ..a.clone()
+    };
+    b.pets[1] = PetState {
+        pos: q_pos([121.5, 50.0]),
+        anim: 643,
+        leap: 128,
+        heart: 4,
+        ..b.pets[1]
+    };
+    let (big, small) = (
+        encode(&a, None, 1, &[], &[], BUDGET)[0].len(),
+        encode(&b, Some(&a), 1, &[], &[], BUDGET)[0].len(),
+    );
     let part = decode(&encode(&b, Some(&a), 1, &[], &[], BUDGET)[0], Some(&a)).unwrap();
     assert_eq!(part.pets.as_deref(), Some(&b.pets[..]));
-    assert!(big - small >= 20, "two still pets cost a byte each, the one moving a handful: {big} then {small}");
-    let mut c = World { tick: 16, ..b.clone() };
+    assert!(
+        big - small >= 20,
+        "two still pets cost a byte each, the one moving a handful: {big} then {small}"
+    );
+    let mut c = World {
+        tick: 16,
+        ..b.clone()
+    };
     c.pets.remove(0);
     c.pets.push(dog(2, 0, 800.0));
     let part = decode(&encode(&c, Some(&b), 1, &[], &[], BUDGET)[0], Some(&b)).unwrap();
-    assert_eq!(part.pets.as_deref(), Some(&c.pets[..]), "one gone and one new");
+    assert_eq!(
+        part.pets.as_deref(),
+        Some(&c.pets[..]),
+        "one gone and one new"
+    );
     let w = World::assemble(&[part]);
     assert_eq!(w.pets, c.pets, "a baseline keeps its pets");
 }
@@ -380,7 +566,16 @@ fn a_mirror_draws_pets_where_the_host_had_them_and_carries_their_pounce_on() {
     let mut m = Mirror::default();
     let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
     let time = crate::tuning::tuning().dog_leap_time;
-    w.pets = vec![PetState { owner: 1, def: 7, slot: 2, pos: q_pos([300.0, 200.0]), heading: 128, anim: 64, leap: 1, heart: 3 }];
+    w.pets = vec![PetState {
+        owner: 1,
+        def: 7,
+        slot: 2,
+        pos: q_pos([300.0, 200.0]),
+        heading: 128,
+        anim: 64,
+        leap: 1,
+        heart: 3,
+    }];
     for t in 0..10u32 {
         w.tick = 10 + t * 3;
         m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
@@ -389,22 +584,67 @@ fn a_mirror_draws_pets_where_the_host_had_them_and_carries_their_pounce_on() {
     m.advance(1.0 / TICK_HZ as f32);
     let p: Vec<_> = m.pets().collect();
     assert_eq!(p.len(), 1);
-    assert_eq!((p[0].owner, p[0].def, p[0].slot, p[0].heart), (1, 7, 2, Some(2)));
-    assert!((p[0].pos[0] - 300.0).abs() < 0.05 && (p[0].pos[1] - 200.0).abs() < 0.05, "{:?}", p[0].pos);
-    assert!((p[0].heading[0] + 1.0).abs() < 1e-3, "faces left: {:?}", p[0].heading);
+    assert_eq!(
+        (p[0].owner, p[0].def, p[0].slot, p[0].heart),
+        (1, 7, 2, Some(2))
+    );
+    assert!(
+        (p[0].pos[0] - 300.0).abs() < 0.05 && (p[0].pos[1] - 200.0).abs() < 0.05,
+        "{:?}",
+        p[0].pos
+    );
+    assert!(
+        (p[0].heading[0] + 1.0).abs() < 1e-3,
+        "faces left: {:?}",
+        p[0].heading
+    );
     assert!((p[0].anim - 1.0).abs() < 1e-3);
-    assert!(p[0].leap.is_some_and(|l| (l - 1.0 / TICK_HZ as f32).abs() < 1e-3 && l < time), "a pounce goes on between snapshots: {:?}", p[0].leap);
+    assert!(
+        p[0].leap
+            .is_some_and(|l| (l - 1.0 / TICK_HZ as f32).abs() < 1e-3 && l < time),
+        "a pounce goes on between snapshots: {:?}",
+        p[0].leap
+    );
     w.tick += 3;
     w.pets.clear();
     m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
-    assert_eq!(m.pets().count(), 0, "a pet gone from the newest snapshot is gone");
+    assert_eq!(
+        m.pets().count(),
+        0,
+        "a pet gone from the newest snapshot is gone"
+    );
 }
 
 #[test]
 fn a_flat_shot_keeps_its_old_bytes_and_an_arcing_one_carries_its_arc() {
-    let flat = Spawn::Shot { owner: 1, look: 300, from: [1600, 3200], vel: [-880, 40], life: 75, arc: [0; 3] };
-    let arcing = Spawn::Shot { owner: 2, look: 12, from: [800, 900], vel: [880, 0], life: 5, arc: [40, 1840, 700] };
-    let spawns = vec![Spawned { id: 1, tick: 10, what: flat }, Spawned { id: 2, tick: 10, what: arcing.clone() }];
+    let flat = Spawn::Shot {
+        owner: 1,
+        look: 300,
+        from: [1600, 3200],
+        vel: [-880, 40],
+        life: 75,
+        arc: [0; 3],
+    };
+    let arcing = Spawn::Shot {
+        owner: 2,
+        look: 12,
+        from: [800, 900],
+        vel: [880, 0],
+        life: 5,
+        arc: [40, 1840, 700],
+    };
+    let spawns = vec![
+        Spawned {
+            id: 1,
+            tick: 10,
+            what: flat,
+        },
+        Spawned {
+            id: 2,
+            tick: 10,
+            what: arcing.clone(),
+        },
+    ];
     let w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
     let bytes = &encode(&w, None, 1, &[], &spawns, BUDGET)[0];
     let mut old = super::wire::Writer::new();
@@ -415,9 +655,20 @@ fn a_flat_shot_keeps_its_old_bytes_and_an_arcing_one_carries_its_arc() {
     old.i16(-880);
     old.i16(40);
     old.u8(75);
-    assert!(bytes.windows(old.buf.len()).any(|b| b == old.buf.as_slice()), "a flat shot goes as tag 0 with the fields it always had");
-    assert_eq!(decode(bytes, None).unwrap().spawns, spawns, "both come back whole");
-    let Spawn::Shot { arc, .. } = arcing else { unreachable!() };
+    assert!(
+        bytes
+            .windows(old.buf.len())
+            .any(|b| b == old.buf.as_slice()),
+        "a flat shot goes as tag 0 with the fields it always had"
+    );
+    assert_eq!(
+        decode(bytes, None).unwrap().spawns,
+        spawns,
+        "both come back whole"
+    );
+    let Spawn::Shot { arc, .. } = arcing else {
+        unreachable!()
+    };
     assert_ne!(arc, [0; 3]);
 }
 
@@ -426,7 +677,18 @@ fn a_shot_held_still_by_the_cards_keeps_flying_after_them() {
     let mut m = Mirror::default();
     let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
     m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
-    let shot = Spawned { id: 1, tick: 10, what: Spawn::Shot { owner: 3, from: q_pos([100.0, 100.0]), vel: [80, 0], life: 50, look: 0, arc: [0; 3] } };
+    let shot = Spawned {
+        id: 1,
+        tick: 10,
+        what: Spawn::Shot {
+            owner: 3,
+            from: q_pos([100.0, 100.0]),
+            vel: [80, 0],
+            life: 50,
+            look: 0,
+            arc: [0; 3],
+        },
+    };
     m.spawn(vec![shot]);
     m.frozen = true;
     for t in 0..240u32 {
@@ -440,5 +702,9 @@ fn a_shot_held_still_by_the_cards_keeps_flying_after_them() {
         m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
         m.advance(1.0 / TICK_HZ as f32);
     }
-    assert_eq!(m.shots().count(), 1, "four seconds of cards don't age the shot");
+    assert_eq!(
+        m.shots().count(),
+        1,
+        "four seconds of cards don't age the shot"
+    );
 }

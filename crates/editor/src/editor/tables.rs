@@ -55,7 +55,9 @@ impl DataEdit {
 
 /// Whether the page is one of `tuning.txt`'s difficulties.
 fn is_difficulty(d: &DataEdit) -> bool {
-    d.file == "tuning.txt" && d.section != table::TOP && !last_harvest_game::tuning::is_base_section(&d.section)
+    d.file == "tuning.txt"
+        && d.section != table::TOP
+        && !last_harvest_game::tuning::is_base_section(&d.section)
 }
 
 /// Whether a line is a shot style's color, which steps through the palette.
@@ -68,9 +70,15 @@ fn is_color(d: &DataEdit, key: &str) -> bool {
 fn choices(d: &DataEdit, key: &str, players: &[String]) -> Option<Vec<String>> {
     let words = |w: &[&str]| Some(w.iter().map(|w| w.to_string()).collect());
     match (d.file.as_str(), key) {
-        ("powerups.txt", "zone") if d.section != table::TOP => words(&last_harvest_game::powerup_zones()),
-        ("powerups.txt", "unlock") if d.section != table::TOP => words(&last_harvest_game::unlock_conditions()),
-        ("powerups.txt", "player") if d.section != table::TOP && !players.is_empty() => Some(players.to_vec()),
+        ("powerups.txt", "zone") if d.section != table::TOP => {
+            words(&last_harvest_game::powerup_zones())
+        }
+        ("powerups.txt", "unlock") if d.section != table::TOP => {
+            words(&last_harvest_game::unlock_conditions())
+        }
+        ("powerups.txt", "player") if d.section != table::TOP && !players.is_empty() => {
+            Some(players.to_vec())
+        }
         ("tuning.txt", "kit") if is_difficulty(d) => words(&["easy", "normal", "hard"]),
         _ => None,
     }
@@ -99,7 +107,14 @@ fn step_choice(key: &str, value: &str, words: &[String], by: i32) -> String {
 
 /// Whether a name in the list is a sprite that can be drawn in the game: the catalog's, or a player's prop.
 fn is_paintable(name: &str) -> bool {
-    ![sprite::DATA_PREFIX, sprite::MAP_PREFIX, sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX].iter().any(|p| name.starts_with(p))
+    ![
+        sprite::DATA_PREFIX,
+        sprite::MAP_PREFIX,
+        sprite::CARD_PREFIX,
+        sprite::PLAYER_CARD_PREFIX,
+    ]
+    .iter()
+    .any(|p| name.starts_with(p))
 }
 
 /// Whether a line names one of a shot style's sprites, which step through the sprites.
@@ -110,18 +125,54 @@ fn is_sprite(d: &DataEdit, key: &str) -> bool {
 /// The list name for a section of a data file: `DATA_POWERUPS_PISTOL`, or `DATA_POWERUPS` for the lines before
 /// its first heading.
 pub(super) fn data_name(file: &str, section: &str) -> String {
-    let stem: String = file.trim_end_matches(".txt").chars().map(|c| if c == '/' || c == '.' { '_' } else { c.to_ascii_uppercase() }).collect();
+    let stem: String = file
+        .trim_end_matches(".txt")
+        .chars()
+        .map(|c| {
+            if c == '/' || c == '.' {
+                '_'
+            } else {
+                c.to_ascii_uppercase()
+            }
+        })
+        .collect();
     // A ground code, `.` or `g`, is spelled as its hex: names are capitals, and `g` and `G` are two codes.
     let hex = |c: char| format!("_{:02X}", c as u32);
-    let section: String = if kind(file) == "ground.txt" { section.chars().map(hex).collect() } else { section.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c.to_ascii_uppercase().to_string() } else { hex(c) }).collect() };
-    if section.is_empty() { format!("{}{stem}", sprite::DATA_PREFIX) } else { format!("{}{stem}_{section}", sprite::DATA_PREFIX) }
+    let section: String = if kind(file) == "ground.txt" {
+        section.chars().map(hex).collect()
+    } else {
+        section
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c.to_ascii_uppercase().to_string()
+                } else {
+                    hex(c)
+                }
+            })
+            .collect()
+    };
+    if section.is_empty() {
+        format!("{}{stem}", sprite::DATA_PREFIX)
+    } else {
+        format!("{}{stem}_{section}", sprite::DATA_PREFIX)
+    }
 }
 
 impl Editor {
     /// The data files kept here: the game's, then each farm's, its rules before its ground.
     pub(super) fn table_files(&self) -> Vec<String> {
-        let farms = self.store.farm_ids().into_iter().flat_map(|id| [last_harvest_game::farm_file(&id, false), last_harvest_game::farm_file(&id, true)]);
-        last_harvest_game::TABLES.into_iter().map(str::to_string).chain(farms).collect()
+        let farms = self.store.farm_ids().into_iter().flat_map(|id| {
+            [
+                last_harvest_game::farm_file(&id, false),
+                last_harvest_game::farm_file(&id, true),
+            ]
+        });
+        last_harvest_game::TABLES
+            .into_iter()
+            .map(str::to_string)
+            .chain(farms)
+            .collect()
     }
 
     /// Every data file's sections, as names for the list, marked as saved where the file differs from the game's own.
@@ -129,12 +180,23 @@ impl Editor {
         let mut out = Vec::new();
         for file in self.table_files() {
             let file = file.as_str();
-            let Some(text) = self.store.read_table(file) else { continue };
+            let Some(text) = self.store.read_table(file) else {
+                continue;
+            };
             let changed = last_harvest_game::built_in_table(file) != Some(text.as_str());
             let sections = Table::new(file, &text).sections();
             // A heading folds only a run of names, so the difficulties go after tuning.txt's base sections.
-            let (base, difficulties): (Vec<&String>, Vec<&String>) = sections.iter().partition(|s| file != "tuning.txt" || s.is_empty() || last_harvest_game::tuning::is_base_section(s));
-            out.extend(base.into_iter().chain(difficulties).map(|s| (data_name(file, s), changed)));
+            let (base, difficulties): (Vec<&String>, Vec<&String>) =
+                sections.iter().partition(|s| {
+                    file != "tuning.txt"
+                        || s.is_empty()
+                        || last_harvest_game::tuning::is_base_section(s)
+                });
+            out.extend(
+                base.into_iter()
+                    .chain(difficulties)
+                    .map(|s| (data_name(file, s), changed)),
+            );
         }
         out
     }
@@ -142,20 +204,42 @@ impl Editor {
     /// The data page section that says how a sprite plays: its props.txt section, else the first effects.txt
     /// section that plays it, else the ground.txt code whose crop it is part of.
     pub(super) fn data_link_for(&self, sprite: &str) -> Option<String> {
-        let props = self.store.read_table("props.txt").map(|t| Table::new("props.txt", &t));
+        let props = self
+            .store
+            .read_table("props.txt")
+            .map(|t| Table::new("props.txt", &t));
         if props.is_some_and(|p| p.sections().iter().any(|s| s == sprite)) {
             return Some(data_name("props.txt", sprite));
         }
-        let effects = self.store.read_table("effects.txt").map(|t| Table::new("effects.txt", &t));
-        let plays = |t: &Table, s: &String| t.entries(s).iter().any(|e| e.key == "art" && e.value == sprite);
-        let effect = effects.and_then(|t| t.sections().iter().find(|s| plays(&t, s)).map(|s| data_name("effects.txt", s)));
-        effect.or_else(|| self.store.read_table("ground.txt").and_then(|t| super::Crop::find(&t, sprite)).map(|c| data_name("ground.txt", &c.code)))
+        let effects = self
+            .store
+            .read_table("effects.txt")
+            .map(|t| Table::new("effects.txt", &t));
+        let plays = |t: &Table, s: &String| {
+            t.entries(s)
+                .iter()
+                .any(|e| e.key == "art" && e.value == sprite)
+        };
+        let effect = effects.and_then(|t| {
+            t.sections()
+                .iter()
+                .find(|s| plays(&t, s))
+                .map(|s| data_name("effects.txt", s))
+        });
+        effect.or_else(|| {
+            self.store
+                .read_table("ground.txt")
+                .and_then(|t| super::Crop::find(&t, sprite))
+                .map(|c| data_name("ground.txt", &c.code))
+        })
     }
 
     /// Hands the game the store's `ground.txt` for maps to paint and lay, where it isn't the game's own, or always
     /// with `saved`, just after it is saved.
     pub(super) fn install_ground(&mut self, saved: bool) {
-        let Some(text) = self.store.read_table("ground.txt") else { return };
+        let Some(text) = self.store.read_table("ground.txt") else {
+            return;
+        };
         if !saved && last_harvest_game::built_in_table("ground.txt") == Some(text.as_str()) {
             return;
         }
@@ -171,15 +255,52 @@ impl Editor {
         }
         for file in self.table_files() {
             let file = file.as_str();
-            let Some(text) = self.store.read_table(file) else { continue };
+            let Some(text) = self.store.read_table(file) else {
+                continue;
+            };
             let t = Table::new(file, &text);
-            if let Some(section) = t.sections().into_iter().find(|s| data_name(file, s) == name) {
+            if let Some(section) = t
+                .sections()
+                .into_iter()
+                .find(|s| data_name(file, s) == name)
+            {
                 (self.map, self.data_link) = (None, None);
                 let weapon = weapons::is_weapon(&t, &section).then(Weapon::new);
-                self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None, undo: Vec::new(), redo: Vec::new(), weapon });
+                self.data = Some(DataEdit {
+                    file: file.to_string(),
+                    section,
+                    table: t,
+                    dirty: false,
+                    first: 0,
+                    typing: None,
+                    undo: Vec::new(),
+                    redo: Vec::new(),
+                    weapon,
+                });
                 self.refresh_weapon();
-                self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
-                (self.frame, self.view, self.stats, self.selection, self.naming) = (0, None, false, None, None);
+                self.sprite = Sprite {
+                    detail: 1,
+                    alpha: Vec::new(),
+                    worn: Vec::new(),
+                    name: name.into(),
+                    frames: vec![Frame::blank(16, 16)],
+                    views: None,
+                    footprint: None,
+                    roof: None,
+                    north: None,
+                    west: None,
+                    top: None,
+                    card: None,
+                    clear_in_3d: Vec::new(),
+                    paint: Default::default(),
+                };
+                (
+                    self.frame,
+                    self.view,
+                    self.stats,
+                    self.selection,
+                    self.naming,
+                ) = (0, None, false, None, None);
                 self.undo.clear();
                 self.redo.clear();
                 (self.dirty, self.stand_touched, self.changed) = (false, false, true);
@@ -210,7 +331,10 @@ impl Editor {
     pub(super) fn new_farm(&mut self, id: &str) {
         let Some(d) = &self.data else { return };
         if !last_harvest_game::valid_farm_id(id) {
-            return self.say(format!("A farm's id is 1 to {} lowercase letters, digits and _", last_harvest_game::FARM_ID_MAX));
+            return self.say(format!(
+                "A farm's id is 1 to {} lowercase letters, digits and _",
+                last_harvest_game::FARM_ID_MAX
+            ));
         }
         let file = last_harvest_game::farm_file(id, false);
         if self.store.read_table(&file).is_some() {
@@ -223,14 +347,19 @@ impl Editor {
         self.ask = None;
         self.names = self.all_names();
         self.open_table(&data_name(&file, &section));
-        self.say(format!("Made {file}: a player card plays on it once its Stats page picks it"));
+        self.say(format!(
+            "Made {file}: a player card plays on it once its Stats page picks it"
+        ));
     }
 
     /// Puts the open ground kind into the farm `id`'s ground, in place of its own of the same code, and saves it.
     pub(super) fn ground_to_farm(&mut self, id: &str) {
         let Some(d) = &self.data else { return };
         if !last_harvest_game::valid_farm_id(id) {
-            return self.say(format!("A farm's id is 1 to {} lowercase letters, digits and _", last_harvest_game::FARM_ID_MAX));
+            return self.say(format!(
+                "A farm's id is 1 to {} lowercase letters, digits and _",
+                last_harvest_game::FARM_ID_MAX
+            ));
         }
         let file = last_harvest_game::farm_file(id, true);
         if file == d.file {
@@ -244,7 +373,9 @@ impl Editor {
         }
         self.ask = None;
         self.names = self.all_names();
-        self.say(format!("[{section}] is in {file}: the farm {id} paints it in place of the game's"));
+        self.say(format!(
+            "[{section}] is in {file}: the farm {id} paints it in place of the game's"
+        ));
     }
 
     /// Removes the open farm file on a second press within a few seconds, and leaves nothing open.
@@ -277,11 +408,19 @@ impl Editor {
         let ground = kind(&d.file) == "ground.txt";
         let why = if id.is_empty() {
             Some("Name the copy first".to_string())
-        } else if ground && !(id.len() == 1 && id.bytes().all(|b| b.is_ascii_graphic() && b != b'#' && b != b'[' && b != b']')) {
+        } else if ground
+            && !(id.len() == 1
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_graphic() && b != b'#' && b != b'[' && b != b']'))
+        {
             Some("A ground's code is one character, such as k".to_string())
         } else if ground {
             None
-        } else if !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        } else if !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
             Some("An id uses lowercase letters, digits and _".to_string())
         } else if d.table.sections().iter().any(|s| s == id) {
             Some(format!("{} already has [{id}]", d.file))
@@ -308,7 +447,9 @@ impl Editor {
             None => t.add(id, "name", id),
         };
         let difficulty = is_difficulty(d);
-        if d.change(|t, s| t.copy(s, id) && keep.iter().all(|(k, v)| t.add(id, k, v)) && (!difficulty || named(t))) {
+        if d.change(|t, s| {
+            t.copy(s, id) && keep.iter().all(|(k, v)| t.add(id, k, v)) && (!difficulty || named(t))
+        }) {
             d.section = id.to_string();
             let file = d.file.clone();
             self.show_section();
@@ -331,24 +472,79 @@ impl Editor {
         self.refresh_weapon();
     }
 
-    pub(super) fn data_buttons(&self, d: &DataEdit, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
-        for (i, (a, l)) in [(Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
-            push(716.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && d.dirty);
+    pub(super) fn data_buttons(
+        &self,
+        d: &DataEdit,
+        push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool),
+    ) {
+        for (i, (a, l)) in [(Action::Revert, "Revert"), (Action::Save, "Save")]
+            .into_iter()
+            .enumerate()
+        {
+            push(
+                716.0 + i as f32 * 102.0,
+                8.0,
+                94.0,
+                34.0,
+                a,
+                l,
+                a == Action::Save && d.dirty,
+            );
         }
         if Self::copyable(d) {
-            push(if d.weapon.is_some() { 410.0 } else { 614.0 }, 8.0, 94.0, 34.0, Action::Ask(Ask::Copy), "Copy", false);
+            push(
+                if d.weapon.is_some() { 410.0 } else { 614.0 },
+                8.0,
+                94.0,
+                34.0,
+                Action::Ask(Ask::Copy),
+                "Copy",
+                false,
+            );
         }
         match kind(&d.file) {
-            "farm.txt" => push(512.0, 8.0, 94.0, 34.0, Action::Ask(Ask::Farm), "New farm", false),
-            "ground.txt" if d.section != table::TOP => push(512.0, 8.0, 94.0, 34.0, Action::Ask(Ask::FarmGround), "To farm", false),
+            "farm.txt" => push(
+                512.0,
+                8.0,
+                94.0,
+                34.0,
+                Action::Ask(Ask::Farm),
+                "New farm",
+                false,
+            ),
+            "ground.txt" if d.section != table::TOP => push(
+                512.0,
+                8.0,
+                94.0,
+                34.0,
+                Action::Ask(Ask::FarmGround),
+                "To farm",
+                false,
+            ),
             _ => {}
         }
         if last_harvest_game::farm_of_file(&d.file).is_some() {
-            push(410.0, 8.0, 94.0, 34.0, Action::Delete, "Delete", self.delete_armed > 0.0);
+            push(
+                410.0,
+                8.0,
+                94.0,
+                34.0,
+                Action::Delete,
+                "Delete",
+                self.delete_armed > 0.0,
+            );
         }
         if let Some(w) = &d.weapon {
             push(512.0, 8.0, 94.0, 34.0, Action::WeaponTry, "Try it", false);
-            push(614.0, 8.0, 94.0, 34.0, Action::WeaponLines, if w.lines { "Weapon" } else { "Lines" }, false);
+            push(
+                614.0,
+                8.0,
+                94.0,
+                34.0,
+                Action::WeaponLines,
+                if w.lines { "Weapon" } else { "Lines" },
+                false,
+            );
             if !w.lines {
                 return self.weapon_buttons(d, w, push);
             }
@@ -358,25 +554,109 @@ impl Editor {
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
             let y = ROW_TOP + (row - d.first) as f32 * ROW_H;
             if is_sprite(d, &e.key) {
-                push(CANVAS.x + 318.0, y, 62.0, 30.0, Action::DataPaint(row), "Paint", false);
-                push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataSprite(row, -1), "<", false);
-                push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataSprite(row, 1), ">", false);
+                push(
+                    CANVAS.x + 318.0,
+                    y,
+                    62.0,
+                    30.0,
+                    Action::DataPaint(row),
+                    "Paint",
+                    false,
+                );
+                push(
+                    CANVAS.x + 384.0,
+                    y,
+                    40.0,
+                    30.0,
+                    Action::DataSprite(row, -1),
+                    "<",
+                    false,
+                );
+                push(
+                    CANVAS.x + 428.0,
+                    y,
+                    40.0,
+                    30.0,
+                    Action::DataSprite(row, 1),
+                    ">",
+                    false,
+                );
             } else if is_color(d, &e.key) || choices(d, &e.key, &players).is_some() {
-                let step = if is_color(d, &e.key) { Action::DataColor } else { Action::DataChoice };
+                let step = if is_color(d, &e.key) {
+                    Action::DataColor
+                } else {
+                    Action::DataChoice
+                };
                 push(CANVAS.x + 384.0, y, 40.0, 30.0, step(row, -1), "<", false);
                 push(CANVAS.x + 428.0, y, 40.0, 30.0, step(row, 1), ">", false);
             } else if table::step(&e.value, 1, false).is_some() {
-                push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataStep(row, -1), "-", false);
-                push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataStep(row, 1), "+", false);
+                push(
+                    CANVAS.x + 384.0,
+                    y,
+                    40.0,
+                    30.0,
+                    Action::DataStep(row, -1),
+                    "-",
+                    false,
+                );
+                push(
+                    CANVAS.x + 428.0,
+                    y,
+                    40.0,
+                    30.0,
+                    Action::DataStep(row, 1),
+                    "+",
+                    false,
+                );
             }
-            push(CANVAS.x + 472.0, y, 50.0, 30.0, Action::DataEdit(row), "Edit", self.naming.is_some() && d.typing == Some(row));
-            push(CANVAS.x + 526.0, y, 30.0, 30.0, Action::DataRemove(row), "x", false);
+            push(
+                CANVAS.x + 472.0,
+                y,
+                50.0,
+                30.0,
+                Action::DataEdit(row),
+                "Edit",
+                self.naming.is_some() && d.typing == Some(row),
+            );
+            push(
+                CANVAS.x + 526.0,
+                y,
+                30.0,
+                30.0,
+                Action::DataRemove(row),
+                "x",
+                false,
+            );
         }
         let bottom = CANVAS.y + CANVAS.h - 40.0;
-        push(CANVAS.x, bottom, 120.0, 34.0, Action::DataAdd, "Add line", self.naming.as_ref().is_some_and(|(l, _)| *l == Line::Added));
+        push(
+            CANVAS.x,
+            bottom,
+            120.0,
+            34.0,
+            Action::DataAdd,
+            "Add line",
+            self.naming.as_ref().is_some_and(|(l, _)| *l == Line::Added),
+        );
         if entries.len() > ROWS {
-            push(CANVAS.x + 440.0, bottom, 56.0, 34.0, Action::DataPage(-1), "Up", false);
-            push(CANVAS.x + 500.0, bottom, 56.0, 34.0, Action::DataPage(1), "Down", false);
+            push(
+                CANVAS.x + 440.0,
+                bottom,
+                56.0,
+                34.0,
+                Action::DataPage(-1),
+                "Up",
+                false,
+            );
+            push(
+                CANVAS.x + 500.0,
+                bottom,
+                56.0,
+                34.0,
+                Action::DataPage(1),
+                "Down",
+                false,
+            );
         }
     }
 
@@ -385,16 +665,22 @@ impl Editor {
             return true;
         }
         let players = self.player_ids();
-        let Some(d) = &mut self.data else { return false };
+        let Some(d) = &mut self.data else {
+            return false;
+        };
         match a {
             Action::DataStep(row, by) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
                 if let Some(v) = table::step(&e.value, by, shift) {
                     d.change(|t, s| t.set(s, row, &v));
                 }
             }
             Action::DataColor(row, by) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
                 let hex = |[r, g, b, _]: [u8; 4]| format!("{r:02X}{g:02X}{b:02X}");
                 let colors: Vec<String> = sprite::palette().into_iter().map(hex).collect();
                 let next = match colors.iter().position(|c| c.eq_ignore_ascii_case(&e.value)) {
@@ -404,14 +690,25 @@ impl Editor {
                 d.change(|t, s| t.set(s, row, &colors[next]));
             }
             Action::DataChoice(row, by) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
-                let Some(words) = choices(d, &e.key, &players) else { return true };
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
+                let Some(words) = choices(d, &e.key, &players) else {
+                    return true;
+                };
                 let v = step_choice(&e.key, &e.value, &words, by);
                 d.change(|t, s| t.set(s, row, &v));
             }
             Action::DataSprite(row, by) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
-                let sprites: Vec<&String> = self.names.iter().map(|(n, _)| n).filter(|n| is_paintable(n)).collect();
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
+                let sprites: Vec<&String> = self
+                    .names
+                    .iter()
+                    .map(|(n, _)| n)
+                    .filter(|n| is_paintable(n))
+                    .collect();
                 if sprites.is_empty() {
                     return true;
                 }
@@ -423,14 +720,18 @@ impl Editor {
                 d.change(|t, s| t.set(s, row, &name));
             }
             Action::DataPaint(row) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
                 match self.names.iter().any(|(n, _)| *n == e.value) {
                     true => self.switch_to(e.value),
                     false => self.say(format!("No sprite called {}", e.value)),
                 }
             }
             Action::DataEdit(row) => {
-                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else {
+                    return true;
+                };
                 d.typing = Some(row);
                 self.naming = Some((Line::Value, e.value));
             }
@@ -443,7 +744,8 @@ impl Editor {
             }
             Action::DataPage(by) => {
                 let n = d.table.entries(&d.section).len();
-                d.first = (d.first as i32 + by * ROWS as i32).clamp(0, n.saturating_sub(ROWS) as i32) as usize;
+                d.first = (d.first as i32 + by * ROWS as i32)
+                    .clamp(0, n.saturating_sub(ROWS) as i32) as usize;
             }
             Action::Save => self.save_table(),
             Action::Delete => self.delete_farm_file(),
@@ -465,7 +767,9 @@ impl Editor {
                 d.change(|t, s| t.set(s, row, text));
             }
             (Line::Added, _) => {
-                let (key, value) = text.split_once(char::is_whitespace).map_or((text, ""), |(k, v)| (k, v.trim()));
+                let (key, value) = text
+                    .split_once(char::is_whitespace)
+                    .map_or((text, ""), |(k, v)| (k, v.trim()));
                 if !key.is_empty() && d.change(|t, s| t.add(s, key, value)) {
                     d.first = d.table.entries(&d.section).len().saturating_sub(ROWS);
                 }
@@ -503,11 +807,20 @@ impl Editor {
             Key::Save => self.save_table(),
             Key::Undo | Key::Redo => {
                 let Some(d) = &mut self.data else { return true };
-                let (from, to) = if key == Key::Undo { (&mut d.undo, &mut d.redo) } else { (&mut d.redo, &mut d.undo) };
+                let (from, to) = if key == Key::Undo {
+                    (&mut d.undo, &mut d.redo)
+                } else {
+                    (&mut d.redo, &mut d.undo)
+                };
                 if let Some((text, section)) = from.pop() {
-                    to.push((std::mem::replace(&mut d.table.text, text), std::mem::replace(&mut d.section, section)));
+                    to.push((
+                        std::mem::replace(&mut d.table.text, text),
+                        std::mem::replace(&mut d.section, section),
+                    ));
                     (d.dirty, d.typing) = (true, None);
-                    d.first = d.first.min(d.table.entries(&d.section).len().saturating_sub(ROWS));
+                    d.first = d
+                        .first
+                        .min(d.table.entries(&d.section).len().saturating_sub(ROWS));
                 }
                 self.show_section();
                 self.refresh_weapon();
@@ -528,42 +841,129 @@ impl Editor {
     pub(super) fn draw_data(&self, c: &mut Canvas, d: &DataEdit) {
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
         self.draw_list(c);
-        c.label(format!("{}{}", self.sprite.name, if d.dirty { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        c.label(
+            format!(
+                "{}{}",
+                self.sprite.name,
+                if d.dirty { "  (unsaved)" } else { "" }
+            ),
+            12.0,
+            12.0,
+            26.0,
+            TEXT,
+            Align::Left,
+        );
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         if d.weapon.as_ref().is_some_and(|w| !w.lines) {
             return self.draw_weapon(c);
         }
-        let title = if d.section.is_empty() { format!("{}, before its first section", d.file) } else { format!("{} [{}]", d.file, d.section) };
-        c.label(title, CANVAS.x + 12.0, CANVAS.y + 12.0, 20.0, HOT, Align::Left);
+        let title = if d.section.is_empty() {
+            format!("{}, before its first section", d.file)
+        } else {
+            format!("{} [{}]", d.file, d.section)
+        };
+        c.label(
+            title,
+            CANVAS.x + 12.0,
+            CANVAS.y + 12.0,
+            20.0,
+            HOT,
+            Align::Left,
+        );
         let entries = d.table.entries(&d.section);
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
             let y = ROW_TOP + (row - d.first) as f32 * ROW_H;
-            c.label(e.key.clone(), CANVAS.x + 12.0, y + 2.0, 18.0, TEXT, Align::Left);
-            let typed = self.naming.as_ref().filter(|(l, _)| *l == Line::Value && d.typing == Some(row));
+            c.label(
+                e.key.clone(),
+                CANVAS.x + 12.0,
+                y + 2.0,
+                18.0,
+                TEXT,
+                Align::Left,
+            );
+            let typed = self
+                .naming
+                .as_ref()
+                .filter(|(l, _)| *l == Line::Value && d.typing == Some(row));
             let value = match typed {
-                Some((_, t)) => format!("{}{}", t.chars().rev().take(VALUE_CHARS - 1).collect::<Vec<_>>().into_iter().rev().collect::<String>(), "_"),
-                None if e.value.chars().count() > VALUE_CHARS => format!("{}...", e.value.chars().take(VALUE_CHARS - 3).collect::<String>()),
+                Some((_, t)) => format!(
+                    "{}{}",
+                    t.chars()
+                        .rev()
+                        .take(VALUE_CHARS - 1)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<String>(),
+                    "_"
+                ),
+                None if e.value.chars().count() > VALUE_CHARS => format!(
+                    "{}...",
+                    e.value.chars().take(VALUE_CHARS - 3).collect::<String>()
+                ),
                 None => e.value.clone(),
             };
-            c.label(value, CANVAS.x + 150.0, y + 2.0, 18.0, if typed.is_some() { HOT } else { TEXT }, Align::Left);
+            c.label(
+                value,
+                CANVAS.x + 150.0,
+                y + 2.0,
+                18.0,
+                if typed.is_some() { HOT } else { TEXT },
+                Align::Left,
+            );
             if !e.comment.is_empty() {
                 let note: String = e.comment.chars().take(38).collect();
                 c.label(note, CANVAS.x + 150.0, y + 21.0, 12.0, DIM, Align::Left);
             }
         }
         if let Some((Line::Added, t)) = &self.naming {
-            c.label(format!("New line: {t}_"), CANVAS.x + 130.0, CANVAS.y + CANVAS.h - 32.0, 18.0, HOT, Align::Left);
+            c.label(
+                format!("New line: {t}_"),
+                CANVAS.x + 130.0,
+                CANVAS.y + CANVAS.h - 32.0,
+                18.0,
+                HOT,
+                Align::Left,
+            );
         } else {
-            c.label("key value, as the file writes it", CANVAS.x + 130.0, CANVAS.y + CANVAS.h - 30.0, 15.0, DIM, Align::Left);
+            c.label(
+                "key value, as the file writes it",
+                CANVAS.x + 130.0,
+                CANVAS.y + CANVAS.h - 30.0,
+                15.0,
+                DIM,
+                Align::Left,
+            );
         }
         for b in self.buttons() {
             let r = b.rect;
             c.rect(r.x, r.y, r.w, r.h, if b.on { HOT } else { BUTTON });
-            c.label(b.label, r.x + r.w / 2.0, r.y + (r.h - 18.0) / 2.0, 18.0, if b.on { [0.1, 0.1, 0.1, 1.0] } else { TEXT }, Align::Center);
+            c.label(
+                b.label,
+                r.x + r.w / 2.0,
+                r.y + (r.h - 18.0) / 2.0,
+                18.0,
+                if b.on { [0.1, 0.1, 0.1, 1.0] } else { TEXT },
+                Align::Center,
+            );
         }
         let help = "Edit: type a value, Enter keeps it   -/+: step a number, Shift by ten   Up/Down: page   Cmd+S: save";
-        c.label(help, CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 15.0, DIM, Align::Left);
-        c.label("The game checks the file as it would read it before it saves.", CANVAS.x, CANVAS.y + CANVAS.h + 34.0, 15.0, DIM, Align::Left);
+        c.label(
+            help,
+            CANVAS.x,
+            CANVAS.y + CANVAS.h + 12.0,
+            15.0,
+            DIM,
+            Align::Left,
+        );
+        c.label(
+            "The game checks the file as it would read it before it saves.",
+            CANVAS.x,
+            CANVAS.y + CANVAS.h + 34.0,
+            15.0,
+            DIM,
+            Align::Left,
+        );
         self.draw_overlays(c);
     }
 }
@@ -574,7 +974,10 @@ mod tests {
 
     #[test]
     fn an_old_map_zone_steps_as_far() {
-        let zones: Vec<String> = last_harvest_game::powerup_zones().iter().map(|z| z.to_string()).collect();
+        let zones: Vec<String> = last_harvest_game::powerup_zones()
+            .iter()
+            .map(|z| z.to_string())
+            .collect();
         assert_eq!(step_choice("zone", "map", &zones, -1), "behind");
         assert_eq!(step_choice("zone", "map", &zones, 1), "ahead");
         assert_eq!(step_choice("zone", "far", &zones, -1), "behind");

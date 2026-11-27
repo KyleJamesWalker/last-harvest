@@ -3,8 +3,8 @@
 //! stick that turns as a right stick does, with Pause above. They go beside the picture when the window is wide enough
 //! and under it when upright. In photo mode the keys become photo keys, each named by a word.
 
-use crate::fmath as fm;
 use crate::art::{self, Art};
+use crate::fmath as fm;
 use crate::input::{Buttons, MAX_TOUCHES};
 use crate::{Align, Canvas, Color, SCREEN_H, SCREEN_W};
 
@@ -77,13 +77,37 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
     let wide = w >= h;
     let none = (Buttons::NONE, Face::Icon(art::WHITE), [0.0; 4]);
     if !touch {
-        let (top, bottom) = if run { (Some(fit([0.0, 0.0, w, h])), None) } else { (None, Some(fit([0.0, 0.0, w, h]))) };
-        return Layout { size, top, bottom, stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 5] };
+        let (top, bottom) = if run {
+            (Some(fit([0.0, 0.0, w, h])), None)
+        } else {
+            (None, Some(fit([0.0, 0.0, w, h])))
+        };
+        return Layout {
+            size,
+            top,
+            bottom,
+            stick: [0.0; 4],
+            stick_r: 0.0,
+            turn: [0.0; 4],
+            keys: [none; 5],
+        };
     }
     if !run {
         let side_by_side = w * SCREEN_H >= h * SCREEN_W;
-        let (top, bottom) = if side_by_side { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
-        return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 5] };
+        let (top, bottom) = if side_by_side {
+            (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h]))
+        } else {
+            (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0]))
+        };
+        return Layout {
+            size,
+            top: Some(top),
+            bottom: Some(bottom),
+            stick: [0.0; 4],
+            stick_r: 0.0,
+            turn: [0.0; 4],
+            keys: [none; 5],
+        };
     }
     let u = w.min(h);
     let (pic, left, right) = if wide {
@@ -93,38 +117,91 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
             (pic, [0.0, 0.0, side, h], [pic[0] + pic[2], 0.0, side, h])
         } else {
             let (zw, zh) = (pic[2] * 0.3, pic[3] * 0.6);
-            (pic, [pic[0], pic[1] + pic[3] - zh, zw, zh], [pic[0] + pic[2] - zw, pic[1] + pic[3] - zh, zw, zh])
+            (
+                pic,
+                [pic[0], pic[1] + pic[3] - zh, zw, zh],
+                [pic[0] + pic[2] - zw, pic[1] + pic[3] - zh, zw, zh],
+            )
         }
     } else {
         let pic = fit([0.0, 0.0, w, h * 0.6]);
         let band = pic[1] + pic[3];
-        (pic, [0.0, band, w / 2.0, h - band], [w / 2.0, band, w / 2.0, h - band])
+        (
+            pic,
+            [0.0, band, w / 2.0, h - band],
+            [w / 2.0, band, w / 2.0, h - band],
+        )
     };
     let cell = (right[2] / 2.0).min(right[3] / 4.4).min(0.2 * u);
     let cx = right[0] + right[2] / 2.0;
     let square = |x: f32, y: f32, s: f32| [x - s / 2.0, y - s / 2.0, s, s];
-    let corner = square(right[0] + right[2] - 0.4 * cell, right[1] + 0.4 * cell, 0.6 * cell);
+    let corner = square(
+        right[0] + right[2] - 0.4 * cell,
+        right[1] + 0.4 * cell,
+        0.6 * cell,
+    );
     let (l, r, s) = (cx - 0.5 * cell, cx + 0.5 * cell, 0.85 * cell);
     let keys = if photo {
         [
-            (Buttons::L2, Face::Word("Setting"), square(l, right[1] + 1.2 * cell, s)),
-            (Buttons::R2, Face::Word("Change"), square(r, right[1] + 1.2 * cell, s)),
-            (Buttons::L1, Face::Word("Height"), square(l, right[1] + 2.3 * cell, s)),
-            (Buttons::X, Face::Word("Reset"), square(r, right[1] + 2.3 * cell, s)),
+            (
+                Buttons::L2,
+                Face::Word("Setting"),
+                square(l, right[1] + 1.2 * cell, s),
+            ),
+            (
+                Buttons::R2,
+                Face::Word("Change"),
+                square(r, right[1] + 1.2 * cell, s),
+            ),
+            (
+                Buttons::L1,
+                Face::Word("Height"),
+                square(l, right[1] + 2.3 * cell, s),
+            ),
+            (
+                Buttons::X,
+                Face::Word("Reset"),
+                square(r, right[1] + 2.3 * cell, s),
+            ),
             (Buttons::B, Face::Word("Back"), corner),
         ]
     } else {
         [
-            (Buttons::R1, Face::Icon(art::GRENADE), square(cx, right[1] + 1.2 * cell, cell)),
-            (Buttons::L2, Face::Icon(art::TOUCH_MAP), square(l, right[1] + 2.3 * cell, s)),
-            (Buttons::B, Face::Icon(art::TOUCH_AROUND), square(r, right[1] + 2.3 * cell, s)),
+            (
+                Buttons::R1,
+                Face::Icon(art::GRENADE),
+                square(cx, right[1] + 1.2 * cell, cell),
+            ),
+            (
+                Buttons::L2,
+                Face::Icon(art::TOUCH_MAP),
+                square(l, right[1] + 2.3 * cell, s),
+            ),
+            (
+                Buttons::B,
+                Face::Icon(art::TOUCH_AROUND),
+                square(r, right[1] + 2.3 * cell, s),
+            ),
             (Buttons::START, Face::Icon(art::TOUCH_PAUSE), corner),
             none,
         ]
     };
     let strip = right[1] + 2.85 * cell;
-    let turn = [right[0], strip, right[2], (right[1] + right[3] - strip).max(cell)];
-    Layout { size, top: Some(pic), bottom: None, stick: left, stick_r: cell * 0.8, turn, keys }
+    let turn = [
+        right[0],
+        strip,
+        right[2],
+        (right[1] + right[3] - strip).max(cell),
+    ];
+    Layout {
+        size,
+        top: Some(pic),
+        bottom: None,
+        stick: left,
+        stick_r: cell * 0.8,
+        turn,
+        keys,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -169,18 +246,35 @@ pub struct Touchpad {
 
 impl Touchpad {
     /// Reads the fingers, in window pixels by slot; `other` is any button or stick input from elsewhere.
-    pub fn update(&mut self, touches: &[Option<[f32; 2]>; MAX_TOUCHES], l: &Layout, other: bool) -> Pad {
+    pub fn update(
+        &mut self,
+        touches: &[Option<[f32; 2]>; MAX_TOUCHES],
+        l: &Layout,
+        other: bool,
+    ) -> Pad {
         for (slot, &t) in self.fingers.iter_mut().zip(touches) {
             match (slot.as_mut(), t) {
                 (None, Some(p)) => {
                     let claim = claim(l, p);
                     self.hidden &= matches!(claim, Claim::Screen(_));
-                    *slot = Some(Finger { claim, origin: p, at: p, new: true });
+                    *slot = Some(Finger {
+                        claim,
+                        origin: p,
+                        at: p,
+                        new: true,
+                    });
                 }
                 (Some(f), Some(p)) => {
                     f.at = p;
                     f.new = false;
-                    let d = [p[0] - f.origin[0], if f.claim == Claim::Turn { 0.0 } else { p[1] - f.origin[1] }];
+                    let d = [
+                        p[0] - f.origin[0],
+                        if f.claim == Claim::Turn {
+                            0.0
+                        } else {
+                            p[1] - f.origin[1]
+                        },
+                    ];
                     let len = fm::hypot(d[0], d[1]);
                     if matches!(f.claim, Claim::Stick | Claim::Turn) && len > l.stick_r {
                         let k = (len - l.stick_r) / len;
@@ -198,7 +292,10 @@ impl Touchpad {
             match f.claim {
                 Claim::Key(b) => pad.held |= b,
                 Claim::Stick => {
-                    let d = [(f.at[0] - f.origin[0]) / l.stick_r, (f.at[1] - f.origin[1]) / l.stick_r];
+                    let d = [
+                        (f.at[0] - f.origin[0]) / l.stick_r,
+                        (f.at[1] - f.origin[1]) / l.stick_r,
+                    ];
                     if fm::hypot(d[0], d[1]) > 0.15 {
                         pad.stick = d.map(|v| v.clamp(-1.0, 1.0));
                     }
@@ -224,7 +321,11 @@ impl Touchpad {
 
     /// The controls over the window, see-through around them.
     pub fn draw(&self, l: &Layout) -> Canvas {
-        let mut c = Canvas { clear: [0.0; 4], size: Some(l.size), ..Default::default() };
+        let mut c = Canvas {
+            clear: [0.0; 4],
+            size: Some(l.size),
+            ..Default::default()
+        };
         if self.hidden || l.stick_r == 0.0 {
             return c;
         }
@@ -238,27 +339,69 @@ impl Touchpad {
             c.art(a, x - a.w() * k / 2.0, y - a.h() * k / 2.0, k, false, color);
         };
         let rest = |area: Rect| rest(area, r);
-        let stick = self.fingers.iter().flatten().find(|f| f.claim == Claim::Stick);
+        let stick = self
+            .fingers
+            .iter()
+            .flatten()
+            .find(|f| f.claim == Claim::Stick);
         let (base, knob) = stick.map_or((rest(l.stick), rest(l.stick)), |f| (f.origin, f.at));
         let tint = if stick.is_some() { used } else { idle };
         c.circle(base[0], base[1], r, shade);
         sprite(&mut c, art::TOUCH_RING, base, 2.0 * r, tint);
         let d = [knob[0] - base[0], knob[1] - base[1]];
         let k = (r / fm::hypot(d[0], d[1]).max(r)).min(1.0);
-        sprite(&mut c, art::TOUCH_KNOB, [base[0] + d[0] * k, base[1] + d[1] * k], r * 0.9, tint);
-        let turn = self.fingers.iter().flatten().find(|f| f.claim == Claim::Turn);
+        sprite(
+            &mut c,
+            art::TOUCH_KNOB,
+            [base[0] + d[0] * k, base[1] + d[1] * k],
+            r * 0.9,
+            tint,
+        );
+        let turn = self
+            .fingers
+            .iter()
+            .flatten()
+            .find(|f| f.claim == Claim::Turn);
         let (base, knob) = turn.map_or((rest(l.turn), rest(l.turn)[0]), |f| (f.origin, f.at[0]));
         let tint = if turn.is_some() { used } else { idle };
         sprite(&mut c, art::TOUCH_TRACK, base, 2.0 * r, tint);
-        sprite(&mut c, art::TOUCH_KNOB, [knob.clamp(base[0] - r, base[0] + r), base[1]], r * 0.9, tint);
-        let word = l.keys().filter(|k| matches!(k.1, Face::Word(_))).map(|k| k.2[2]).fold(0.0, f32::max) * 0.2;
+        sprite(
+            &mut c,
+            art::TOUCH_KNOB,
+            [knob.clamp(base[0] - r, base[0] + r), base[1]],
+            r * 0.9,
+            tint,
+        );
+        let word = l
+            .keys()
+            .filter(|k| matches!(k.1, Face::Word(_)))
+            .map(|k| k.2[2])
+            .fold(0.0, f32::max)
+            * 0.2;
         for &(b, face, [x, y, w, _]) in l.keys() {
             let down = self.held.contains(b);
             let (mid, tint) = ([x + w / 2.0, y + w / 2.0], if down { used } else { idle });
-            sprite(&mut c, if down { art::TOUCH_PAD_DOWN } else { art::TOUCH_PAD }, mid, w, tint);
+            sprite(
+                &mut c,
+                if down {
+                    art::TOUCH_PAD_DOWN
+                } else {
+                    art::TOUCH_PAD
+                },
+                mid,
+                w,
+                tint,
+            );
             match face {
                 Face::Icon(icon) => sprite(&mut c, icon, mid, w * 0.6, tint),
-                Face::Word(name) => c.label(name, mid[0], mid[1] - word * 0.55, word, tint, Align::Center),
+                Face::Word(name) => c.label(
+                    name,
+                    mid[0],
+                    mid[1] - word * 0.55,
+                    word,
+                    tint,
+                    Align::Center,
+                ),
             }
         }
         c
@@ -316,7 +459,10 @@ mod tests {
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
         for &(b, _, r) in l.keys() {
-            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
+            assert!(
+                r[0] >= pic[0] + pic[2] - 0.5,
+                "{b:?} sits right of the picture"
+            );
         }
         assert_eq!(l.key(Buttons::R2), None, "a run has no Map key");
     }
@@ -355,12 +501,22 @@ mod tests {
         let mut pad = Touchpad::default();
         let down = [l.turn[0] + l.turn[2] / 2.0, l.turn[1] + l.turn[3] / 2.0];
         assert_eq!(pad.update(&fingers(&[down]), &l, false).look, 0.0);
-        let half = pad.update(&fingers(&[[down[0] + l.stick_r / 2.0, down[1] + l.stick_r]]), &l, false);
-        assert!((half.look - 0.5).abs() < 0.01 && half.stick == [0.0; 2], "sideways only, and not the walking stick");
+        let half = pad.update(
+            &fingers(&[[down[0] + l.stick_r / 2.0, down[1] + l.stick_r]]),
+            &l,
+            false,
+        );
+        assert!(
+            (half.look - 0.5).abs() < 0.01 && half.stick == [0.0; 2],
+            "sideways only, and not the walking stick"
+        );
         let left = pad.update(&fingers(&[[down[0] - 3.0 * l.stick_r, down[1]]]), &l, false);
         assert!(left.look < -0.999);
         let back = pad.update(&fingers(&[[down[0] - 2.0 * l.stick_r, down[1]]]), &l, false);
-        assert!(back.look.abs() < 0.01, "the strip followed the thumb, so a little back is straight ahead");
+        assert!(
+            back.look.abs() < 0.01,
+            "the strip followed the thumb, so a little back is straight ahead"
+        );
     }
 
     #[test]
@@ -368,10 +524,21 @@ mod tests {
         let l = layout([2400.0, 1080.0], true, true, false);
         let pic = l.top.unwrap();
         let mut pad = Touchpad::default();
-        let out = pad.update(&fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 4.0]]), &l, false);
+        let out = pad.update(
+            &fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 4.0]]),
+            &l,
+            false,
+        );
         let t = out.touch.unwrap();
-        assert!(out.touch_started && (t[0] - SCREEN_W / 2.0).abs() < 1.0 && (t[1] - SCREEN_H / 4.0).abs() < 1.0);
-        assert!(!pad.update(&fingers(&[[pic[0] + 1.0, pic[1] + 1.0]]), &l, false).touch_started);
+        assert!(
+            out.touch_started
+                && (t[0] - SCREEN_W / 2.0).abs() < 1.0
+                && (t[1] - SCREEN_H / 4.0).abs() < 1.0
+        );
+        assert!(
+            !pad.update(&fingers(&[[pic[0] + 1.0, pic[1] + 1.0]]), &l, false)
+                .touch_started
+        );
     }
 
     #[test]
@@ -379,9 +546,17 @@ mod tests {
         let l = layout([2400.0, 1080.0], false, true, false);
         let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
         let mut pad = Touchpad::default();
-        assert!(pad.update(&fingers(&[[t[0] + 10.0, t[1] + 10.0]]), &l, false).touch.is_none());
+        assert!(
+            pad.update(&fingers(&[[t[0] + 10.0, t[1] + 10.0]]), &l, false)
+                .touch
+                .is_none()
+        );
         pad.update(&fingers(&[]), &l, false);
-        assert!(pad.update(&fingers(&[[b[0] + 10.0, b[1] + 10.0]]), &l, false).touch.is_some());
+        assert!(
+            pad.update(&fingers(&[[b[0] + 10.0, b[1] + 10.0]]), &l, false)
+                .touch
+                .is_some()
+        );
     }
 
     #[test]
@@ -391,8 +566,15 @@ mod tests {
         pad.update(&fingers(&[]), &l, true);
         assert!(pad.draw(&l).shapes.is_empty());
         let pic = l.top.unwrap();
-        pad.update(&fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 2.0]]), &l, false);
-        assert!(pad.draw(&l).shapes.is_empty(), "a tap on the picture, as to throw, leaves them hidden");
+        pad.update(
+            &fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 2.0]]),
+            &l,
+            false,
+        );
+        assert!(
+            pad.draw(&l).shapes.is_empty(),
+            "a tap on the picture, as to throw, leaves them hidden"
+        );
         pad.update(&fingers(&[]), &l, false);
         pad.update(&fingers(&[[10.0, 10.0]]), &l, false);
         assert!(!pad.draw(&l).shapes.is_empty());
@@ -401,7 +583,10 @@ mod tests {
     #[test]
     fn without_touch_a_run_fills_the_window_and_menus_show_the_bottom_screen() {
         let run = layout([720.0, 480.0], true, false, false);
-        assert_eq!((run.top, run.bottom), (Some([40.0, 0.0, 640.0, 480.0]), None));
+        assert_eq!(
+            (run.top, run.bottom),
+            (Some([40.0, 0.0, 640.0, 480.0]), None)
+        );
         let menus = layout([720.0, 480.0], false, false, false);
         assert!(menus.top.is_none() && menus.bottom.is_some());
         assert!(Touchpad::default().draw(&run).shapes.is_empty());
@@ -409,14 +594,26 @@ mod tests {
 
     #[test]
     fn at_every_shape_the_menus_take_the_bigger_of_side_by_side_and_stacked() {
-        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[640.0, 480.0], [720.0, 720.0], [720.0, 480.0]]) {
+        for size in (4..=25)
+            .map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0])
+            .chain([[640.0, 480.0], [720.0, 720.0], [720.0, 480.0]])
+        {
             let [w, h] = size;
             let l = layout(size, false, true, false);
             let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
-            let best = (w / 2.0 / SCREEN_W).min(h / SCREEN_H).max((w / SCREEN_W).min(h / 2.0 / SCREEN_H));
-            assert!((t[2] - best * SCREEN_W).abs() < 0.01 && t[2] == b[2], "{size:?}: {t:?} {b:?} could be {}", best * SCREEN_W);
+            let best = (w / 2.0 / SCREEN_W)
+                .min(h / SCREEN_H)
+                .max((w / SCREEN_W).min(h / 2.0 / SCREEN_H));
+            assert!(
+                (t[2] - best * SCREEN_W).abs() < 0.01 && t[2] == b[2],
+                "{size:?}: {t:?} {b:?} could be {}",
+                best * SCREEN_W
+            );
             for [x, y, rw, rh] in [t, b] {
-                assert!(x >= 0.0 && y >= 0.0 && x + rw <= w + 0.01 && y + rh <= h + 0.01, "{size:?}: clipped");
+                assert!(
+                    x >= 0.0 && y >= 0.0 && x + rw <= w + 0.01 && y + rh <= h + 0.01,
+                    "{size:?}: clipped"
+                );
             }
             let apart = t[0] + t[2] <= b[0] + 0.01 || t[1] + t[3] <= b[1] + 0.01;
             assert!(apart, "{size:?}: the screens overlap");
@@ -435,49 +632,102 @@ mod tests {
     fn photo_mode_alone_has_an_r2_key_and_change_holds_it() {
         for tenths in 4..=25 {
             let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
-            assert_eq!(layout(size, true, true, false).key(Buttons::R2), None, "{size:?}: a run has no Map key");
+            assert_eq!(
+                layout(size, true, true, false).key(Buttons::R2),
+                None,
+                "{size:?}: a run has no Map key"
+            );
         }
         let l = layout([1080.0, 2400.0], true, true, true);
         let change = l.key(Buttons::R2).unwrap();
         let mut pad = Touchpad::default();
-        let out = pad.update(&fingers(&[[change[0] + change[2] / 2.0, change[1] + change[3] / 2.0]]), &l, false);
-        assert!(out.held.contains(Buttons::R2) && out.stick == [0.0; 2], "held, and not the stick");
+        let out = pad.update(
+            &fingers(&[[change[0] + change[2] / 2.0, change[1] + change[3] / 2.0]]),
+            &l,
+            false,
+        );
+        assert!(
+            out.held.contains(Buttons::R2) && out.stick == [0.0; 2],
+            "held, and not the stick"
+        );
     }
 
     #[test]
     fn at_every_shape_the_resting_turn_knob_clears_the_keys() {
-        let apart = |a: Rect, b: Rect| a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
-        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[1080.0, 2400.0]]) {
+        let apart = |a: Rect, b: Rect| {
+            a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1]
+        };
+        for size in (4..=25)
+            .map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0])
+            .chain([[1080.0, 2400.0]])
+        {
             let l = layout(size, true, true, false);
             let [x, y] = rest(l.turn, l.stick_r);
             let half = l.stick_r * 0.45;
             let knob = [x - half, y - half, 2.0 * half, 2.0 * half];
             for (i, &(b, _, k)) in l.keys().enumerate() {
-                assert!(k[0] >= 0.0 && k[1] >= 0.0 && k[0] + k[2] <= size[0] && k[1] + k[3] <= size[1], "{size:?}: {b:?} off the window");
-                assert!(apart(k, knob), "{size:?}: {b:?} {k:?} overlaps the turn knob {knob:?}");
+                assert!(
+                    k[0] >= 0.0 && k[1] >= 0.0 && k[0] + k[2] <= size[0] && k[1] + k[3] <= size[1],
+                    "{size:?}: {b:?} off the window"
+                );
+                assert!(
+                    apart(k, knob),
+                    "{size:?}: {b:?} {k:?} overlaps the turn knob {knob:?}"
+                );
                 for &(o, _, other) in l.keys().skip(i + 1) {
                     assert!(apart(k, other), "{size:?}: {b:?} overlaps {o:?}");
                 }
             }
-            assert!(knob[1] + knob[3] <= size[1], "{size:?}: the turn knob runs off the window");
+            assert!(
+                knob[1] + knob[3] <= size[1],
+                "{size:?}: the turn knob runs off the window"
+            );
         }
     }
     #[test]
     fn photo_mode_has_its_own_named_keys_clear_of_each_other_and_the_thumbs() {
-        let apart = |a: Rect, b: Rect| a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
-        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[1080.0, 2400.0]]) {
+        let apart = |a: Rect, b: Rect| {
+            a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1]
+        };
+        for size in (4..=25)
+            .map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0])
+            .chain([[1080.0, 2400.0]])
+        {
             let l = layout(size, true, true, true);
             let keys: Vec<(Buttons, Face)> = l.keys().map(|k| (k.0, k.1)).collect();
             let named = ["Setting", "Change", "Height", "Reset", "Back"].map(Face::Word);
-            assert_eq!(keys, [Buttons::L2, Buttons::R2, Buttons::L1, Buttons::X, Buttons::B].into_iter().zip(named).collect::<Vec<_>>());
+            assert_eq!(
+                keys,
+                [
+                    Buttons::L2,
+                    Buttons::R2,
+                    Buttons::L1,
+                    Buttons::X,
+                    Buttons::B
+                ]
+                .into_iter()
+                .zip(named)
+                .collect::<Vec<_>>()
+            );
             let [x, y] = rest(l.stick, l.stick_r);
-            let ring = [x - l.stick_r, y - l.stick_r, 2.0 * l.stick_r, 2.0 * l.stick_r];
+            let ring = [
+                x - l.stick_r,
+                y - l.stick_r,
+                2.0 * l.stick_r,
+                2.0 * l.stick_r,
+            ];
             let [x, y] = rest(l.turn, l.stick_r);
             let half = l.stick_r * 0.45;
             let knob = [x - half, y - half, 2.0 * half, 2.0 * half];
             for (i, &(b, _, k)) in l.keys().enumerate() {
-                assert!(k[0] >= 0.0 && k[1] >= 0.0 && k[0] + k[2] <= size[0] && k[1] + k[3] <= size[1], "{size:?}: {b:?} off the window");
-                assert!(apart(k, ring) && apart(k, knob), "{size:?}: {b:?} {k:?} sits under a thumb");
+                assert!(
+                    k[0] >= 0.0 && k[1] >= 0.0 && k[0] + k[2] <= size[0] && k[1] + k[3] <= size[1],
+                    "{size:?}: {b:?} off the window"
+                );
+                assert!(
+                    apart(k, ring) && apart(k, knob),
+                    "{size:?}: {b:?} {k:?} sits under a thumb"
+                );
                 for &(o, _, other) in l.keys().skip(i + 1) {
                     assert!(apart(k, other), "{size:?}: {b:?} overlaps {o:?}");
                 }
@@ -487,17 +737,47 @@ mod tests {
 
     #[test]
     fn photo_keys_draw_their_names_and_a_run_draws_none() {
-        let words = |l: &Layout| Touchpad::default().draw(l).shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
-        assert_eq!(words(&layout([2400.0, 1080.0], true, true, true)), ["Setting", "Change", "Height", "Reset", "Back"]);
+        let words = |l: &Layout| {
+            Touchpad::default()
+                .draw(l)
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let crate::Shape::Text { text, .. } = s {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            words(&layout([2400.0, 1080.0], true, true, true)),
+            ["Setting", "Change", "Height", "Reset", "Back"]
+        );
         assert!(words(&layout([2400.0, 1080.0], true, true, false)).is_empty());
     }
 
     #[test]
     fn every_photo_key_names_itself_in_one_size_back_included() {
-        let shapes = Touchpad::default().draw(&layout([2400.0, 1080.0], true, true, true)).shapes;
-        let sizes: Vec<f32> = shapes.iter().filter_map(|s| if let crate::Shape::Text { size, .. } = s { Some(*size) } else { None }).collect();
+        let shapes = Touchpad::default()
+            .draw(&layout([2400.0, 1080.0], true, true, true))
+            .shapes;
+        let sizes: Vec<f32> = shapes
+            .iter()
+            .filter_map(|s| {
+                if let crate::Shape::Text { size, .. } = s {
+                    Some(*size)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(sizes.len(), 5);
-        assert!(sizes.iter().all(|&s| s == sizes[0]), "label sizes differ: {sizes:?}");
+        assert!(
+            sizes.iter().all(|&s| s == sizes[0]),
+            "label sizes differ: {sizes:?}"
+        );
     }
 
     #[test]
@@ -510,6 +790,10 @@ mod tests {
         pad.update(&fingers(&[down, key]), &l, false);
         let out = pad.update(&fingers(&[[down[0], down[1] - l.stick_r], key]), &l, false);
         assert!(out.held == Buttons::L1 && out.stick[1] < -0.9, "{out:?}");
-        assert_eq!(l.key(Buttons::START), None, "Back, not Pause, leaves photo mode");
+        assert_eq!(
+            l.key(Buttons::START),
+            None,
+            "Back, not Pause, leaves photo mode"
+        );
     }
 }

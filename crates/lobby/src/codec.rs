@@ -1,7 +1,7 @@
 //! The wire form: `LH`, the protocol version, a kind byte, then the fields. Integers are little-endian; strings and
 //! lists have a u16 length. A refusal starts with its text in every version, so any client can show it.
 
-use crate::{Hello, Identity, Member, ModPack, PeerKey, Player, Refusal, Seat, Start, PROTOCOL};
+use crate::{Hello, Identity, Member, ModPack, PROTOCOL, PeerKey, Player, Refusal, Seat, Start};
 
 const MAGIC: [u8; 2] = *b"LH";
 /// The longest string or list a message may carry.
@@ -29,14 +29,21 @@ pub enum Message {
     Cards(Vec<String>),
     Leave,
     /// Host to client: seated, with these seats; `running` when a run is under way and a `Start` follows.
-    Welcome { room: String, seats: Vec<u8>, running: bool },
+    Welcome {
+        room: String,
+        seats: Vec<u8>,
+        running: bool,
+    },
     Refuse(Refusal),
     Roster(Vec<Member>),
     Start(Start),
     /// A player joined the run in progress.
     Joined(Member),
     /// A device left the run, and its seats are empty.
-    Left { peer: PeerKey, seats: Vec<u8> },
+    Left {
+        peer: PeerKey,
+        seats: Vec<u8>,
+    },
     /// The host closed the room.
     Closed,
 }
@@ -83,7 +90,11 @@ pub fn encode(message: &Message) -> Vec<u8> {
             w.list(cards, |w, c| w.str(c));
         }
         Message::Leave => w.u8(LEAVE),
-        Message::Welcome { room, seats, running } => {
+        Message::Welcome {
+            room,
+            seats,
+            running,
+        } => {
             w.u8(WELCOME);
             w.str(room);
             w.list(seats, |w, s| w.u8(*s));
@@ -150,7 +161,11 @@ fn refusal_fields(w: &mut Writer, refusal: &Refusal) {
             w.str(yours);
         }
         Refusal::Pak => w.u8(3),
-        Refusal::Mods { missing, extra, different } => {
+        Refusal::Mods {
+            missing,
+            extra,
+            different,
+        } => {
             w.u8(4);
             for names in [missing, extra, different] {
                 w.list(names, |w, n| w.str(n));
@@ -192,25 +207,50 @@ pub fn decode(bytes: &[u8]) -> Result<Message, DecodeError> {
         HELLO => {
             let game_version = r.str()?;
             let pak = r.u64()?;
-            let mods = r.list(|r| Ok(ModPack { name: r.str()?, fingerprint: r.u64()? }))?;
+            let mods = r.list(|r| {
+                Ok(ModPack {
+                    name: r.str()?,
+                    fingerprint: r.u64()?,
+                })
+            })?;
             let cards = r.list(Reader::str)?;
-            Message::Hello(Hello { identity: Identity { game_version, pak, mods }, cards })
+            Message::Hello(Hello {
+                identity: Identity {
+                    game_version,
+                    pak,
+                    mods,
+                },
+                cards,
+            })
         }
         READY => Message::Ready(r.u8()? != 0),
         CARDS => Message::Cards(r.list(Reader::str)?),
         LEAVE => Message::Leave,
-        WELCOME => Message::Welcome { room: r.str()?, seats: r.list(Reader::u8)?, running: r.u8()? != 0 },
+        WELCOME => Message::Welcome {
+            room: r.str()?,
+            seats: r.list(Reader::u8)?,
+            running: r.u8()? != 0,
+        },
         ROSTER => Message::Roster(r.list(read_member)?),
         START => Message::Start(Start {
             seed: r.u64()?,
             map: r.str()?,
             difficulty: r.u8()?,
-            players: r.list(|r| Ok(Player { seat: r.u8()?, peer: r.u128()?, card: r.str()? }))?,
+            players: r.list(|r| {
+                Ok(Player {
+                    seat: r.u8()?,
+                    peer: r.u128()?,
+                    card: r.str()?,
+                })
+            })?,
             unlocked: r.list(Reader::str)?,
             options: r.list(|r| Ok((r.str()?, r.str()?)))?,
         }),
         JOINED => Message::Joined(read_member(&mut r)?),
-        LEFT => Message::Left { peer: r.u128()?, seats: r.list(Reader::u8)? },
+        LEFT => Message::Left {
+            peer: r.u128()?,
+            seats: r.list(Reader::u8)?,
+        },
         CLOSED => Message::Closed,
         other => return Err(DecodeError::Kind(other)),
     };
@@ -220,18 +260,41 @@ pub fn decode(bytes: &[u8]) -> Result<Message, DecodeError> {
 
 fn read_member(r: &mut Reader) -> Result<Member, DecodeError> {
     let peer = r.u128()?;
-    let seats = r.list(|r| Ok(Seat { seat: r.u8()?, card: r.str()? }))?;
+    let seats = r.list(|r| {
+        Ok(Seat {
+            seat: r.u8()?,
+            card: r.str()?,
+        })
+    })?;
     let flags = r.u8()?;
-    Ok(Member { peer, seats, ready: flags & 1 != 0, host: flags & 2 != 0 })
+    Ok(Member {
+        peer,
+        seats,
+        ready: flags & 1 != 0,
+        host: flags & 2 != 0,
+    })
 }
 
 fn read_refusal(r: &mut Reader, text: String) -> Result<Refusal, DecodeError> {
     Ok(match r.u8()? {
-        1 => Refusal::Protocol { host: r.u8()?, yours: r.u8()? },
-        2 => Refusal::Version { host: r.str()?, yours: r.str()? },
+        1 => Refusal::Protocol {
+            host: r.u8()?,
+            yours: r.u8()?,
+        },
+        2 => Refusal::Version {
+            host: r.str()?,
+            yours: r.str()?,
+        },
         3 => Refusal::Pak,
-        4 => Refusal::Mods { missing: r.list(Reader::str)?, extra: r.list(Reader::str)?, different: r.list(Reader::str)? },
-        5 => Refusal::Full { free: r.u8()?, asked: r.u8()? },
+        4 => Refusal::Mods {
+            missing: r.list(Reader::str)?,
+            extra: r.list(Reader::str)?,
+            different: r.list(Reader::str)?,
+        },
+        5 => Refusal::Full {
+            free: r.u8()?,
+            asked: r.u8()?,
+        },
         6 => Refusal::Running,
         7 => Refusal::BadHello(r.str()?),
         _ => Refusal::Other(text),
@@ -304,12 +367,19 @@ impl Reader<'_> {
         let n = self.len()?;
         String::from_utf8(self.take(n)?.to_vec()).map_err(|_| DecodeError::Text)
     }
-    fn list<T>(&mut self, mut each: impl FnMut(&mut Self) -> Result<T, DecodeError>) -> Result<Vec<T>, DecodeError> {
+    fn list<T>(
+        &mut self,
+        mut each: impl FnMut(&mut Self) -> Result<T, DecodeError>,
+    ) -> Result<Vec<T>, DecodeError> {
         let n = self.len()?;
         (0..n).map(|_| each(self)).collect()
     }
     fn end(&self) -> Result<(), DecodeError> {
-        if self.0.is_empty() { Ok(()) } else { Err(DecodeError::Trailing) }
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(DecodeError::Trailing)
+        }
     }
 }
 
@@ -322,37 +392,79 @@ mod tests {
             identity: Identity {
                 game_version: "v0.2.0".into(),
                 pak: 0xfeed,
-                mods: vec![ModPack { name: "night-owls".into(), fingerprint: 7 }],
+                mods: vec![ModPack {
+                    name: "night-owls".into(),
+                    fingerprint: 7,
+                }],
             },
             cards: vec!["farmer".into(), "witch".into()],
         }
     }
 
     fn every_message() -> Vec<Message> {
-        let member = Member { peer: u128::MAX - 3, seats: vec![Seat { seat: 2, card: "witch".into() }], ready: true, host: false };
+        let member = Member {
+            peer: u128::MAX - 3,
+            seats: vec![Seat {
+                seat: 2,
+                card: "witch".into(),
+            }],
+            ready: true,
+            host: false,
+        };
         vec![
             Message::Hello(hello()),
             Message::Ready(true),
             Message::Ready(false),
             Message::Cards(vec!["farmer".into()]),
             Message::Leave,
-            Message::Welcome { room: "AC3JK".into(), seats: vec![1, 2], running: true },
-            Message::Roster(vec![member.clone(), Member { host: true, ..member.clone() }]),
+            Message::Welcome {
+                room: "AC3JK".into(),
+                seats: vec![1, 2],
+                running: true,
+            },
+            Message::Roster(vec![
+                member.clone(),
+                Member {
+                    host: true,
+                    ..member.clone()
+                },
+            ]),
             Message::Start(Start {
                 seed: 0x1234_5678_9abc_def0,
                 map: "farm".into(),
                 difficulty: 2,
-                players: vec![Player { seat: 0, peer: 1, card: "farmer".into() }, Player { seat: 1, peer: 2, card: "ñandú".into() }],
+                players: vec![
+                    Player {
+                        seat: 0,
+                        peer: 1,
+                        card: "farmer".into(),
+                    },
+                    Player {
+                        seat: 1,
+                        peer: 2,
+                        card: "ñandú".into(),
+                    },
+                ],
                 unlocked: vec!["scythe".into(), "crows".into()],
                 options: vec![("night".into(), "3".into())],
             }),
             Message::Joined(member),
-            Message::Left { peer: 99, seats: vec![3] },
+            Message::Left {
+                peer: 99,
+                seats: vec![3],
+            },
             Message::Closed,
             Message::Refuse(Refusal::Protocol { host: 1, yours: 2 }),
-            Message::Refuse(Refusal::Version { host: "v1".into(), yours: "v2".into() }),
+            Message::Refuse(Refusal::Version {
+                host: "v1".into(),
+                yours: "v2".into(),
+            }),
             Message::Refuse(Refusal::Pak),
-            Message::Refuse(Refusal::Mods { missing: vec!["a".into()], extra: vec![], different: vec!["b".into(), "c".into()] }),
+            Message::Refuse(Refusal::Mods {
+                missing: vec!["a".into()],
+                extra: vec![],
+                different: vec!["b".into(), "c".into()],
+            }),
             Message::Refuse(Refusal::Full { free: 1, asked: 2 }),
             Message::Refuse(Refusal::Running),
             Message::Refuse(Refusal::BadHello("no cards".into())),
@@ -399,13 +511,18 @@ mod tests {
         let mut bytes = encode(&Message::Refuse(Refusal::Pak));
         bytes[2] = PROTOCOL + 1;
         bytes.extend_from_slice(b"fields this version has never seen");
-        assert_eq!(decode(&bytes), Ok(Message::Refuse(Refusal::Other(Refusal::Pak.to_string()))));
+        assert_eq!(
+            decode(&bytes),
+            Ok(Message::Refuse(Refusal::Other(Refusal::Pak.to_string())))
+        );
     }
 
     #[test]
     fn long_strings_are_cut_on_a_char_boundary() {
         let long = "é".repeat(MAX_LEN);
-        let Ok(Message::Cards(cards)) = decode(&encode(&Message::Cards(vec![long]))) else { panic!() };
+        let Ok(Message::Cards(cards)) = decode(&encode(&Message::Cards(vec![long]))) else {
+            panic!()
+        };
         assert!(cards[0].len() <= MAX_LEN && cards[0].chars().all(|c| c == 'é'));
     }
 }

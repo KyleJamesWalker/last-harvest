@@ -39,7 +39,11 @@ impl Drop for CardScene {
         let mut cards = std::mem::take(&mut self.cards);
         cards.clear();
         let old = SPARE.take();
-        SPARE.set(if old.capacity() > cards.capacity() { old } else { cards });
+        SPARE.set(if old.capacity() > cards.capacity() {
+            old
+        } else {
+            cards
+        });
     }
 }
 
@@ -66,6 +70,13 @@ pub struct Card {
 
 impl Card {
     pub fn new(corners: [Vec3; 4], uv: [f32; 4], normal: Vec3) -> Self {
-        Self { corners, uv, normal, tint: [1.0; 3], glow: 0.0, alpha: 1.0 }
+        Self {
+            corners,
+            uv,
+            normal,
+            tint: [1.0; 3],
+            glow: 0.0,
+            alpha: 1.0,
+        }
     }
 }

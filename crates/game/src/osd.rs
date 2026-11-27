@@ -32,7 +32,11 @@ const OFF: [f32; 4] = [1.0, 1.0, 1.0, 0.25];
 
 pub fn draw(c: &mut Canvas, input: &Input, rumble: bool, headphones: bool) {
     let (held, lid_closed) = (input.held, input.lid_closed);
-    let chips = LABELS.iter().map(|&(l, b)| (l, held.contains(b))).chain([("LID", lid_closed), ("RUMBLE", rumble), ("HP", headphones)]);
+    let chips = LABELS.iter().map(|&(l, b)| (l, held.contains(b))).chain([
+        ("LID", lid_closed),
+        ("RUMBLE", rumble),
+        ("HP", headphones),
+    ]);
     let width = |l: &str| font::width(l) * SCALE + 2.0 * PAD;
     let total: f32 = chips.clone().map(|(l, _)| width(l) + GAP).sum::<f32>() - GAP;
     let h = 5.0 * SCALE + 2.0 * PAD;
@@ -44,7 +48,13 @@ pub fn draw(c: &mut Canvas, input: &Input, rumble: bool, headphones: bool) {
         if on {
             c.rect(x, y, w, h, ON);
         }
-        c.text(x + PAD, y + PAD, SCALE, if on { [0.0, 0.0, 0.0, 1.0] } else { OFF }, label);
+        c.text(
+            x + PAD,
+            y + PAD,
+            SCALE,
+            if on { [0.0, 0.0, 0.0, 1.0] } else { OFF },
+            label,
+        );
         x += w + GAP;
     }
 
@@ -78,6 +88,17 @@ fn stick(c: &mut Canvas, x: f32, y: f32, label: &str, [sx, sy]: [f32; 2]) {
     let moved = sx != 0.0 || sy != 0.0;
     c.circle(x, y, STICK_R, [0.0, 0.0, 0.0, 0.55]);
     c.circle(x, y, STICK_R - 4.0, [1.0, 1.0, 1.0, 0.12]);
-    c.circle(x + sx * (STICK_R - 12.0), y + sy * (STICK_R - 12.0), 10.0, if moved { ON } else { OFF });
-    c.text(x - font::width(label) * 2.0, y - STICK_R - 16.0, 4.0, if moved { ON } else { OFF }, label);
+    c.circle(
+        x + sx * (STICK_R - 12.0),
+        y + sy * (STICK_R - 12.0),
+        10.0,
+        if moved { ON } else { OFF },
+    );
+    c.text(
+        x - font::width(label) * 2.0,
+        y - STICK_R - 16.0,
+        4.0,
+        if moved { ON } else { OFF },
+        label,
+    );
 }

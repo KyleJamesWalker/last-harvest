@@ -139,8 +139,20 @@ impl Harvest {
         let t = &self.juice.tally;
         let b = t.book(p);
         let (kills, useful) = t.sum(p);
-        let rows = t.rows(p).into_iter().flat_map(|r| [r.by.map_or(-1.0, |d| d as f32), r.damage, r.dps]);
-        rows.chain([t.total(p), t.dps(p), kills as f32, useful, b.hearts as f32, b.led, b.bites as f32]).collect()
+        let rows = t
+            .rows(p)
+            .into_iter()
+            .flat_map(|r| [r.by.map_or(-1.0, |d| d as f32), r.damage, r.dps]);
+        rows.chain([
+            t.total(p),
+            t.dps(p),
+            kills as f32,
+            useful,
+            b.hearts as f32,
+            b.led,
+            b.bites as f32,
+        ])
+        .collect()
     }
 
     /// Player `p` falls on the spot.
@@ -152,7 +164,8 @@ impl Harvest {
     /// A tough zombie rises fully grown on player `p`.
     #[cfg(test)]
     pub(crate) fn biter_for_test(&mut self, p: PlayerId) {
-        let mut z = super::Zombie::new(super::Kind::common(), self.players[p].pos, 1000.0, 1.0, 0.0);
+        let mut z =
+            super::Zombie::new(super::Kind::common(), self.players[p].pos, 1000.0, 1.0, 0.0);
         z.id = self.next_id;
         self.next_id += 1;
         self.zombies.push(z);
@@ -162,7 +175,8 @@ impl Harvest {
     #[cfg(test)]
     pub(crate) fn lead_for_test(&self, p: PlayerId) -> Option<(bool, [f32; 2])> {
         let pl = &self.players[p];
-        pl.lead.map(|l| (matches!(l, super::leader::Lead::Leading(_)), pl.pos))
+        pl.lead
+            .map(|l| (matches!(l, super::leader::Lead::Leading(_)), pl.pos))
     }
 
     /// Player `p`'s leader falls.
@@ -194,7 +208,11 @@ impl Harvest {
     }
 
     pub fn zombie_spots(&self) -> Vec<(u32, [f32; 2])> {
-        self.zombies.iter().chain(&self.burrowed).map(|z| (z.id, z.pos)).collect()
+        self.zombies
+            .iter()
+            .chain(&self.burrowed)
+            .map(|z| (z.id, z.pos))
+            .collect()
     }
 
     pub fn player_spots(&self) -> Vec<[f32; 2]> {
@@ -206,7 +224,9 @@ impl Harvest {
     pub fn seat(&mut self, p: PlayerId, look: &str) {
         self.tape_seat(p, look);
         let look = super::players::look(look);
-        let near = (0..self.players.len()).find(|&q| self.players[q].alive()).map(|q| self.players[q].pos);
+        let near = (0..self.players.len())
+            .find(|&q| self.players[q].alive())
+            .map(|q| self.players[q].pos);
         let half = crate::tuning::tuning().player_half();
         let pos = match near {
             Some(at) => self.map.slide(at, [14.0, 0.0], half),
@@ -224,7 +244,8 @@ impl Harvest {
             }
             self.players.push(fresh);
         }
-        self.inputs.resize(self.players.len(), crate::Input::default());
+        self.inputs
+            .resize(self.players.len(), crate::Input::default());
         self.inputs[p] = crate::Input::default();
         self.juice.tally.book_mut(p);
         while self.locals.len() < self.players.len() {
@@ -240,7 +261,9 @@ impl Harvest {
     pub fn unseat(&mut self, p: PlayerId) {
         self.tape_unseat(p);
         self.drop_lead(p);
-        let Some(pl) = self.players.get_mut(p) else { return };
+        let Some(pl) = self.players.get_mut(p) else {
+            return;
+        };
         pl.left = true;
         if pl.alive() {
             pl.hp = 0.0;
@@ -287,7 +310,9 @@ pub struct Fresh {
 
 impl Fresh {
     pub fn hand(&self, link: &mut HostLink) {
-        self.events.iter().for_each(|&e| link.push_event(self.tick, e));
+        self.events
+            .iter()
+            .for_each(|&e| link.push_event(self.tick, e));
         self.spawns.iter().for_each(|s| link.push_spawn(s.clone()));
     }
 }
@@ -315,20 +340,37 @@ impl Extract {
 
     /// This tick's events and spawns, for every client; `sounds` are the cues the tick played.
     pub fn record(&mut self, h: &Harvest, tick: u32, sounds: &[Sfx]) -> Fresh {
-        let mut out = Fresh { tick, ..Fresh::default() };
+        let mut out = Fresh {
+            tick,
+            ..Fresh::default()
+        };
         let placed = std::mem::take(&mut *h.net.placed.borrow_mut());
         let blasts = std::mem::take(&mut *h.net.blasts.borrow_mut());
         for &(c, r) in &blasts {
-            out.events.push(Event::Blast { pos: q_pos(c), radius: r.round().min(u16::MAX as f32) as u16 });
+            out.events.push(Event::Blast {
+                pos: q_pos(c),
+                radius: r.round().min(u16::MAX as f32) as u16,
+            });
         }
         let mut heard: Vec<Sfx> = Vec::new();
         for s in sounds {
-            if heard.contains(s) || *s == Sfx::Hurt || (*s == Sfx::GameOver && !matches!(h.phase, Phase::Over { .. })) {
+            if heard.contains(s)
+                || *s == Sfx::Hurt
+                || (*s == Sfx::GameOver && !matches!(h.phase, Phase::Over { .. }))
+            {
                 continue;
             }
             heard.push(*s);
             let at = match *s {
-                Sfx::Boom { pan, gain } | Sfx::Rise { pan, gain } | Sfx::Groan { pan, gain } | Sfx::Caw { pan, gain } | Sfx::Spit { pan, gain } | Sfx::Splat { pan, gain } => placed.iter().find(|p| (p.0, p.1) == (pan, gain)).map(|p| p.2),
+                Sfx::Boom { pan, gain }
+                | Sfx::Rise { pan, gain }
+                | Sfx::Groan { pan, gain }
+                | Sfx::Caw { pan, gain }
+                | Sfx::Spit { pan, gain }
+                | Sfx::Splat { pan, gain } => placed
+                    .iter()
+                    .find(|p| (p.0, p.1) == (pan, gain))
+                    .map(|p| p.2),
                 _ => None,
             };
             out.events.push(match at {
@@ -336,34 +378,59 @@ impl Extract {
                 None => Event::Sound(*s),
             });
         }
-        let now: HashMap<u32, (u8, [f32; 2])> = h.zombies.iter().chain(&h.burrowed).map(|z| (z.id, (z.kind.0, z.pos))).collect();
+        let now: HashMap<u32, (u8, [f32; 2])> = h
+            .zombies
+            .iter()
+            .chain(&h.burrowed)
+            .map(|z| (z.id, (z.kind.0, z.pos)))
+            .collect();
         let mut killed = h.kills.saturating_sub(self.kills);
         self.kills = h.kills;
         let mut killers = Vec::new();
         self.kills_by.resize(h.players.len(), 0);
         for (p, before) in self.kills_by.iter_mut().enumerate() {
             let now = h.juice.tally.sum(p).0;
-            killers.extend(std::iter::repeat_n(p as u8, now.saturating_sub(*before) as usize));
+            killers.extend(std::iter::repeat_n(
+                p as u8,
+                now.saturating_sub(*before) as usize,
+            ));
             *before = now;
         }
         let mut killers = killers.into_iter();
-        let mut gone: Vec<(u32, (u8, [f32; 2]))> = self.last.iter().filter(|(id, _)| !now.contains_key(id)).map(|(&id, &z)| (id, z)).collect();
+        let mut gone: Vec<(u32, (u8, [f32; 2]))> = self
+            .last
+            .iter()
+            .filter(|(id, _)| !now.contains_key(id))
+            .map(|(&id, &z)| (id, z))
+            .collect();
         gone.sort_by_key(|g| g.0);
         for (id, (kind, pos)) in gone {
             self.most_hp.remove(&id);
             if killed > 0 {
                 killed -= 1;
                 let by = killers.next().unwrap_or(0);
-                self.emit(&mut out, Event::Kill { id, kind, pos: q_pos(pos), by });
+                self.emit(
+                    &mut out,
+                    Event::Kill {
+                        id,
+                        kind,
+                        pos: q_pos(pos),
+                        by,
+                    },
+                );
             }
         }
         self.last = now;
         let phase = phase_of(&h.phase);
         if phase != self.phase {
             let ev = match (self.phase, phase) {
-                (_, 1) => Some(Event::LevelUp { level: h.level.min(255) as u8 }),
+                (_, 1) => Some(Event::LevelUp {
+                    level: h.level.min(255) as u8,
+                }),
                 (1, 0) => Some(Event::LevelDone),
-                (_, 2) => Some(Event::RunEnd { won: matches!(h.phase, Phase::Over { won: true, .. }) }),
+                (_, 2) => Some(Event::RunEnd {
+                    won: matches!(h.phase, Phase::Over { won: true, .. }),
+                }),
                 _ => None,
             };
             self.phase = phase;
@@ -372,7 +439,8 @@ impl Extract {
             }
         }
         let mut new = Vec::new();
-        let vel8 = |v: [f32; 2]| v.map(|c| (c * 8.0).clamp(i16::MIN as f32, i16::MAX as f32) as i16);
+        let vel8 =
+            |v: [f32; 2]| v.map(|c| (c * 8.0).clamp(i16::MIN as f32, i16::MAX as f32) as i16);
         let life50 = |l: f32| (l * 50.0).clamp(0.0, 255.0) as u8;
         let mut shots = HashMap::new();
         let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
@@ -383,8 +451,20 @@ impl Extract {
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
                 let [peak, flight] = b.steer.arc;
-                let arc = if flight > 0.0 { [peak, flight * 1000.0, start * 1000.0].map(|v| v.round().clamp(0.0, u16::MAX as f32) as u16) } else { [0; 3] };
-                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life), arc });
+                let arc = if flight > 0.0 {
+                    [peak, flight * 1000.0, start * 1000.0]
+                        .map(|v| v.round().clamp(0.0, u16::MAX as f32) as u16)
+                } else {
+                    [0; 3]
+                };
+                new.push(Spawn::Shot {
+                    owner: b.owner as u8,
+                    look,
+                    from,
+                    vel: vel8(vel),
+                    life: life50(life),
+                    arc,
+                });
                 (self.next_spawn + new.len() as u32, tick, ticks(life))
             });
             shots.insert(key, seen);
@@ -393,8 +473,17 @@ impl Extract {
             let from = q_pos([s.pos[0] - s.vel[0] * s.age, s.pos[1] - s.vel[1] * s.age]);
             let key = (from[0], from[1], vel8(s.vel)[0], vel8(s.vel)[1]);
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
-                new.push(Spawn::Spit { kind: s.kind.0, from, vel: vel8(s.vel), life: life50(s.life + s.age) });
-                (self.next_spawn + new.len() as u32, tick, ticks(s.life + s.age))
+                new.push(Spawn::Spit {
+                    kind: s.kind.0,
+                    from,
+                    vel: vel8(s.vel),
+                    life: life50(s.life + s.age),
+                });
+                (
+                    self.next_spawn + new.len() as u32,
+                    tick,
+                    ticks(s.life + s.age),
+                )
             });
             shots.insert(key, seen);
         }
@@ -404,7 +493,9 @@ impl Extract {
             }
         }
         for b in h.bolts.iter().filter(|b| b.age == 0.0) {
-            new.push(Spawn::Bolt { points: b.points.iter().map(|&p| q_pos(p)).collect() });
+            new.push(Spawn::Bolt {
+                points: b.points.iter().map(|&p| q_pos(p)).collect(),
+            });
         }
         self.shots_seen = shots;
         let mut fx = HashSet::new();
@@ -412,16 +503,28 @@ impl Extract {
             let pos = q_pos(f.pos);
             let art = f.frames.first().map_or(0, |a| a.0);
             let key = (art, pos[0], pos[1]);
-            let blast = blasts.iter().any(|&(c, _)| [c, super::blast_smoke_at(c)].iter().any(|&at| q_pos(at) == pos));
+            let blast = blasts.iter().any(|&(c, _)| {
+                [c, super::blast_smoke_at(c)]
+                    .iter()
+                    .any(|&at| q_pos(at) == pos)
+            });
             if !blast && !self.fx_seen.contains(&key) {
-                new.push(Spawn::Fx { art, pos, angle: (f.angle.rem_euclid(TAU) / TAU * 256.0) as u8 });
+                new.push(Spawn::Fx {
+                    art,
+                    pos,
+                    angle: (f.angle.rem_euclid(TAU) / TAU * 256.0) as u8,
+                });
             }
             fx.insert(key);
         }
         self.fx_seen = fx;
         for what in new {
             self.next_spawn += 1;
-            out.spawns.push(Spawned { id: self.next_spawn, tick, what });
+            out.spawns.push(Spawned {
+                id: self.next_spawn,
+                tick,
+                what,
+            });
         }
         out
     }
@@ -438,14 +541,23 @@ impl Extract {
                 hp: (pl.hp.max(0.0) * 4.0).min(u16::MAX as f32) as u16,
                 max_hp: (pl.kit.max_hp() * 4.0).min(u16::MAX as f32) as u16,
                 hurt: (pl.hurt * 100.0).clamp(0.0, 255.0) as u8,
-                flags: if pl.down.is_some() { P_DOWN } else { 0 } | if pl.walk > 0.0 { P_WALKING } else { 0 } | if pl.ready_flash > 0.0 { P_READY_FLASH } else { 0 } | if pl.left { P_LEFT } else { 0 } | match pl.lead {
-                    Some(super::leader::Lead::Leading(_)) => P_LEADING,
-                    Some(super::leader::Lead::Picking { .. }) => P_PICKING,
-                    None => 0,
-                },
+                flags: if pl.down.is_some() { P_DOWN } else { 0 }
+                    | if pl.walk > 0.0 { P_WALKING } else { 0 }
+                    | if pl.ready_flash > 0.0 {
+                        P_READY_FLASH
+                    } else {
+                        0
+                    }
+                    | if pl.left { P_LEFT } else { 0 }
+                    | match pl.lead {
+                        Some(super::leader::Lead::Leading(_)) => P_LEADING,
+                        Some(super::leader::Lead::Picking { .. }) => P_PICKING,
+                        None => 0,
+                    },
                 down: pl.down.map_or(0, |t| (t * 10.0).clamp(0.0, 255.0) as u8),
                 grenades: (pl.grenades * 16.0).clamp(0.0, 255.0) as u8,
-                speed: (pl.lead.map_or(pl.kit.speed(), super::leader::Lead::speed) * 16.0).clamp(0.0, u16::MAX as f32) as u16,
+                speed: (pl.lead.map_or(pl.kit.speed(), super::leader::Lead::speed) * 16.0)
+                    .clamp(0.0, u16::MAX as f32) as u16,
                 lead: match pl.lead {
                     Some(super::leader::Lead::Leading(id)) => id,
                     Some(super::leader::Lead::Picking { left, .. }) => (left * 10.0).ceil() as u32,
@@ -453,16 +565,41 @@ impl Extract {
                 },
                 lead_hp: (pl.lead_hp * 255.0).round().clamp(0.0, 255.0) as u8,
                 input_tick: input_ticks.get(p).copied().unwrap_or(0),
-                kit: pl.kit.weapons.iter().map(|a| (a.def, a.level)).chain(pl.kit.passives.iter().copied()).map(|(d, l)| (d.min(255) as u8, l.min(255) as u8)).collect(),
+                kit: pl
+                    .kit
+                    .weapons
+                    .iter()
+                    .map(|a| (a.def, a.level))
+                    .chain(pl.kit.passives.iter().copied())
+                    .map(|(d, l)| (d.min(255) as u8, l.min(255) as u8))
+                    .collect(),
             })
             .collect();
         let mut zombies = Vec::with_capacity(h.zombies.len() + h.burrowed.len());
-        for (z, under) in h.zombies.iter().map(|z| (z, false)).chain(h.burrowed.iter().map(|z| (z, true))) {
+        for (z, under) in h
+            .zombies
+            .iter()
+            .map(|z| (z, false))
+            .chain(h.burrowed.iter().map(|z| (z, true)))
+        {
             let most = self.most_hp.entry(z.id).or_insert(z.hp);
             *most = most.max(z.hp);
             let bit = |on: bool, b: u8| if on { b } else { 0 };
-            let flags = bit(under, Z_BURROWED) | bit(z.leader, Z_LEADER) | bit(z.boss, Z_BOSS) | bit(z.hurt > 0.0, Z_HURT) | bit(z.burn > 0.0, Z_BURNING) | bit(z.rise < 1.0, Z_RISING) | bit(z.slow > 0.0, Z_SLOWED) | bit(z.soak > 0.0, Z_SOAKED);
-            zombies.push(ZombieState { id: z.id, kind: z.kind.0, pos: q_pos(z.pos), hp: (z.hp.max(0.0) / most.max(1e-3) * 255.0).round() as u8, flags });
+            let flags = bit(under, Z_BURROWED)
+                | bit(z.leader, Z_LEADER)
+                | bit(z.boss, Z_BOSS)
+                | bit(z.hurt > 0.0, Z_HURT)
+                | bit(z.burn > 0.0, Z_BURNING)
+                | bit(z.rise < 1.0, Z_RISING)
+                | bit(z.slow > 0.0, Z_SLOWED)
+                | bit(z.soak > 0.0, Z_SOAKED);
+            zombies.push(ZombieState {
+                id: z.id,
+                kind: z.kind.0,
+                pos: q_pos(z.pos),
+                hp: (z.hp.max(0.0) / most.max(1e-3) * 255.0).round() as u8,
+                flags,
+            });
         }
         let born = |age: f32| (tick as f32 - age * TICK_HZ as f32).round() as i64 as u16;
         let px = |p: [f32; 2]| q_pos(p.map(f32::round));
@@ -476,7 +613,12 @@ impl Extract {
                 Thrown::Lob { def, .. } => 4 + def.min(250) as u8,
             };
             let to = q_pos(g.to);
-            things.push(Thing { kind: T_GRENADE, sub, pos: q_pos(g.from), data: [to[0], to[1], born(g.t)] });
+            things.push(Thing {
+                kind: T_GRENADE,
+                sub,
+                pos: q_pos(g.from),
+                data: [to[0], to[1], born(g.t)],
+            });
         }
         for d in h.drops.iter().filter(|d| !d.dog.is_some_and(|f| f.carried)) {
             let (kind, value) = match d.kind {
@@ -484,7 +626,12 @@ impl Extract {
                 DropKind::Health => (T_HEALTH, 0),
                 DropKind::Chest => (T_CHEST, 0),
             };
-            things.push(Thing { kind, sub: 0, pos: px(d.pos), data: [value, d.hearts.min(u16::MAX as u32) as u16, 0] });
+            things.push(Thing {
+                kind,
+                sub: 0,
+                pos: px(d.pos),
+                data: [value, d.hearts.min(u16::MAX as u32) as u16, 0],
+            });
         }
         for p in &h.patches {
             let sub = match p.hazard {
@@ -492,19 +639,56 @@ impl Extract {
                 Hazard::Fire => 1,
                 Hazard::Flare => 2,
             };
-            things.push(Thing { kind: T_PATCH, sub, pos: q_pos(p.pos), data: [q(p.radius), born(p.age), (p.life * 10.0).clamp(0.0, u16::MAX as f32) as u16] });
+            things.push(Thing {
+                kind: T_PATCH,
+                sub,
+                pos: q_pos(p.pos),
+                data: [
+                    q(p.radius),
+                    born(p.age),
+                    (p.life * 10.0).clamp(0.0, u16::MAX as f32) as u16,
+                ],
+            });
         }
         for b in &h.barrels {
-            things.push(Thing { kind: T_BARREL, sub: 0, pos: q_pos(b.pos), data: [b.hp.max(0.0).ceil().min(u16::MAX as f32) as u16, 0, 0] });
+            things.push(Thing {
+                kind: T_BARREL,
+                sub: 0,
+                pos: q_pos(b.pos),
+                data: [b.hp.max(0.0).ceil().min(u16::MAX as f32) as u16, 0, 0],
+            });
         }
         for d in &h.decoys {
-            things.push(Thing { kind: T_DECOY, sub: 0, pos: q_pos(d.pos), data: [born(d.age), (d.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
+            things.push(Thing {
+                kind: T_DECOY,
+                sub: 0,
+                pos: q_pos(d.pos),
+                data: [
+                    born(d.age),
+                    (d.life * 10.0).clamp(0.0, u16::MAX as f32) as u16,
+                    0,
+                ],
+            });
         }
         for s in &h.stakes {
-            things.push(Thing { kind: T_STAKE, sub: 0, pos: q_pos(s.pos), data: [born(s.age), (s.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
+            things.push(Thing {
+                kind: T_STAKE,
+                sub: 0,
+                pos: q_pos(s.pos),
+                data: [
+                    born(s.age),
+                    (s.life * 10.0).clamp(0.0, u16::MAX as f32) as u16,
+                    0,
+                ],
+            });
         }
         for t in &h.tells {
-            things.push(Thing { kind: T_TELL, sub: t.kind.0, pos: q_pos(t.pos), data: [t.leader as u16, 0, 0] });
+            things.push(Thing {
+                kind: T_TELL,
+                sub: t.kind.0,
+                pos: q_pos(t.pos),
+                data: [t.leader as u16, 0, 0],
+            });
         }
         let mut world = World::new(tick, players, zombies, things);
         world.run = run_state(h);
@@ -516,21 +700,45 @@ impl Extract {
 /// Every player's dogs and drones as a client draws them, with the heart each dog carries.
 fn pets(h: &Harvest) -> Vec<PetState> {
     let time = crate::tuning::tuning().dog_leap_time;
-    let heading = |v: [f32; 2]| (fm::atan2(v[1], v[0]).rem_euclid(TAU) / TAU * 256.0).round() as u32 as u8;
+    let heading =
+        |v: [f32; 2]| (fm::atan2(v[1], v[0]).rem_euclid(TAU) / TAU * 256.0).round() as u32 as u8;
     let anim = |a: f32| (a * 64.0).round() as u32 as u16;
     let mut pets = Vec::new();
     for (p, pl) in h.players.iter().enumerate() {
         for d in &pl.dogs {
-            let carried = h.drops.iter().find(|x| x.dog.is_some_and(|f| f.carried && (f.player, f.def, f.slot) == (p, d.def, d.slot)));
+            let carried = h.drops.iter().find(|x| {
+                x.dog
+                    .is_some_and(|f| f.carried && (f.player, f.def, f.slot) == (p, d.def, d.slot))
+            });
             let heart = carried.map_or(0, |x| match x.kind {
                 DropKind::Money(v) => v.min(u16::MAX as u32 - 1) as u16 + 1,
                 _ => 0,
             });
-            let leap = d.leap.map_or(0, |a| 1 + (a / time * 254.0).round().clamp(0.0, 254.0) as u8);
-            pets.push(PetState { owner: p as u8, def: d.def as u16, slot: d.slot as u8, pos: q_pos(d.pos), heading: heading(d.heading), anim: anim(d.anim), leap, heart });
+            let leap = d.leap.map_or(0, |a| {
+                1 + (a / time * 254.0).round().clamp(0.0, 254.0) as u8
+            });
+            pets.push(PetState {
+                owner: p as u8,
+                def: d.def as u16,
+                slot: d.slot as u8,
+                pos: q_pos(d.pos),
+                heading: heading(d.heading),
+                anim: anim(d.anim),
+                leap,
+                heart,
+            });
         }
         for d in &pl.drones {
-            pets.push(PetState { owner: p as u8, def: d.def as u16, slot: d.slot as u8, pos: q_pos(d.pos), heading: heading(d.heading), anim: anim(d.anim), leap: 0, heart: 0 });
+            pets.push(PetState {
+                owner: p as u8,
+                def: d.def as u16,
+                slot: d.slot as u8,
+                pos: q_pos(d.pos),
+                heading: heading(d.heading),
+                anim: anim(d.anim),
+                leap: 0,
+                heart: 0,
+            });
         }
     }
     pets.sort_by_key(PetState::key);
@@ -560,8 +768,18 @@ fn run_state(h: &Harvest) -> RunState {
         chest: h.chest,
         cards,
         ticket: (h.ticket * 10.0).ceil().clamp(0.0, u32::MAX as f32) as u32,
-        played: if over { (h.juice.tally.secs * 100.0).round() as u32 } else { 0 },
-        books: if over { (0..h.players.len()).map(|p| h.juice.tally.sent(p)).collect() } else { Vec::new() },
+        played: if over {
+            (h.juice.tally.secs * 100.0).round() as u32
+        } else {
+            0
+        },
+        books: if over {
+            (0..h.players.len())
+                .map(|p| h.juice.tally.sent(p))
+                .collect()
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -577,7 +795,11 @@ pub struct NetSim {
 
 impl Default for NetSim {
     fn default() -> Self {
-        Self { loss: 0.1, latency_ms: 80, jitter_ms: 20 }
+        Self {
+            loss: 0.1,
+            latency_ms: 80,
+            jitter_ms: 20,
+        }
     }
 }
 
@@ -586,8 +808,13 @@ impl NetSim {
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut n = NetSim::default();
         for item in text.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            let (k, v) = item.split_once('=').ok_or_else(|| format!("{item}: not key=value"))?;
-            let num = |v: &str| v.parse::<f32>().map_err(|_| format!("{item}: {v} is not a number"));
+            let (k, v) = item
+                .split_once('=')
+                .ok_or_else(|| format!("{item}: not key=value"))?;
+            let num = |v: &str| {
+                v.parse::<f32>()
+                    .map_err(|_| format!("{item}: {v} is not a number"))
+            };
             match k {
                 "loss" => n.loss = num(v)?.clamp(0.0, 1.0),
                 "lat" | "latency" => n.latency_ms = num(v)?.max(0.0) as u32,
@@ -612,7 +839,11 @@ fn drift(mut d: Vec<f32>) -> Drift {
         return Drift::default();
     }
     d.sort_by(f32::total_cmp);
-    Drift { mean: d.iter().sum::<f32>() / d.len() as f32, p99: d[(d.len() - 1) * 99 / 100], worst: d[d.len() - 1] }
+    Drift {
+        mean: d.iter().sum::<f32>() / d.len() as f32,
+        p99: d[(d.len() - 1) * 99 / 100],
+        worst: d[d.len() - 1],
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -647,7 +878,9 @@ const STEP: f32 = 1.0 / TICK_HZ as f32;
 /// Plays `plan`'s night, an empty build keeping the starting kit, with two players: the host's scripted one, and a client's, also scripted, whose input
 /// crosses `net` to the host and whose picture of the night is a `Mirror` fed by snapshots crossing back.
 pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
-    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(plan.players.clamp(2, 4));
+    let mut h = Harvest::sized(plan.seed, plan.size)
+        .at(plan.difficulty)
+        .with_players(plan.players.clamp(2, 4));
     for pl in h.players.iter_mut().filter(|_| !plan.build.is_empty()) {
         pl.kit = Kit::forced(&plan.build, plan.difficulty.tier());
         pl.hp = pl.kit.max_hp();
@@ -657,18 +890,39 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
     h.progress.everything = plan.unlocked;
     const CLIENT: PlayerId = 1;
     let ticks = |ms: u32| (ms as f32 / 1000.0 * TICK_HZ as f32).round() as u32;
-    let mut down: Pipe<Vec<u8>> = Pipe::new(plan.seed ^ 0xD0, net.loss, ticks(net.latency_ms), ticks(net.jitter_ms));
-    let mut up: Pipe<Vec<u8>> = Pipe::new(plan.seed ^ 0x0F, net.loss, ticks(net.latency_ms), ticks(net.jitter_ms));
+    let mut down: Pipe<Vec<u8>> = Pipe::new(
+        plan.seed ^ 0xD0,
+        net.loss,
+        ticks(net.latency_ms),
+        ticks(net.jitter_ms),
+    );
+    let mut up: Pipe<Vec<u8>> = Pipe::new(
+        plan.seed ^ 0x0F,
+        net.loss,
+        ticks(net.latency_ms),
+        ticks(net.jitter_ms),
+    );
     let mut me = Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every);
     let mut them = Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every);
-    let mut rest: Vec<Bot> = (2..h.players.len()).map(|_| Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every)).collect();
-    let (mut host, mut client, mut mirror, mut extract) = (HostLink::default(), ClientLink::default(), Mirror::default(), Extract::default());
+    let mut rest: Vec<Bot> = (2..h.players.len())
+        .map(|_| Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every))
+        .collect();
+    let (mut host, mut client, mut mirror, mut extract) = (
+        HostLink::default(),
+        ClientLink::default(),
+        Mirror::default(),
+        Extract::default(),
+    );
     mirror.play_locally(CLIENT);
     let (mut log, mut queue) = (InputLog::default(), InputQueue::default());
     let mut played = [0u32; 2];
     let mut sounds = Vec::new();
-    let mut report = NetReport { events_in_order: true, ..NetReport::default() };
-    let (mut zn, mut zt, mut other, mut own, mut predicted) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut report = NetReport {
+        events_in_order: true,
+        ..NetReport::default()
+    };
+    let (mut zn, mut zt, mut other, mut own, mut predicted) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut past: VecDeque<(u32, HashMap<u32, [f32; 2]>)> = VecDeque::new();
     let mut zombie_sum = 0u64;
     let mut delivered = Vec::new();
@@ -676,33 +930,55 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
     let end = plan.until.unwrap_or(dawn());
     let turn_speed = crate::tuning::tuning().turn_speed;
     let mut tick = 0u32;
-    while h.t < end && !matches!(h.phase, Phase::Over { .. }) && tick < (end * TICK_HZ as f32) as u32 * 8 {
+    while h.t < end
+        && !matches!(h.phase, Phase::Over { .. })
+        && tick < (end * TICK_HZ as f32) as u32 * 8
+    {
         tick += 1;
         let mine = me.step(&mut h, ME, &mut sounds);
-        let theirs = if h.players[CLIENT].alive() { them.step(&mut h, CLIENT, &mut sounds) } else { crate::Input::default() };
+        let theirs = if h.players[CLIENT].alive() {
+            them.step(&mut h, CLIENT, &mut sounds)
+        } else {
+            crate::Input::default()
+        };
         mirror.predict(CLIENT, tick, &theirs, turn_speed);
         log.push(tick, InputFrame::of(&theirs));
         if tick.is_multiple_of(input::SEND_EVERY) {
             let (s, e) = client.ack();
-            let m = InputMsg { ack_snapshot: s, ack_event: e, seats: vec![log.seat(CLIENT as u8)] }.encode();
+            let m = InputMsg {
+                ack_snapshot: s,
+                ack_event: e,
+                seats: vec![log.seat(CLIENT as u8)],
+            }
+            .encode();
             report.bytes_up += m.len() as u64;
             up.send(tick, m);
         }
         for m in up.receive(tick) {
             if let Some(m) = InputMsg::decode(&m) {
                 host.ack(m.ack_snapshot, m.ack_event);
-                m.seats.iter().filter(|s| s.seat as usize == CLIENT).for_each(|s| queue.receive(s));
+                m.seats
+                    .iter()
+                    .filter(|s| s.seat as usize == CLIENT)
+                    .for_each(|s| queue.receive(s));
             }
         }
         let (input, at) = queue.play();
         played[CLIENT] = at.unwrap_or(0);
         h.steer(CLIENT, input);
         for (p, bot) in rest.iter_mut().enumerate().map(|(i, b)| (i + 2, b)) {
-            let input = if h.players[p].alive() { bot.step(&mut h, p, &mut sounds) } else { crate::Input::default() };
+            let input = if h.players[p].alive() {
+                bot.step(&mut h, p, &mut sounds)
+            } else {
+                crate::Input::default()
+            };
             h.steer(p, input);
         }
         h.update(&mine, STEP, &mut sounds);
-        if let Some(p) = at.and_then(|k| mirror.predicted_at(CLIENT, k)).filter(|_| h.players[CLIENT].alive()) {
+        if let Some(p) = at
+            .and_then(|k| mirror.predicted_at(CLIENT, k))
+            .filter(|_| h.players[CLIENT].alive())
+        {
             predicted.push(dist(p, h.players[CLIENT].pos));
         }
         extract.tick(&h, tick, &sounds, &mut host);
@@ -728,7 +1004,12 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
         delivered.extend(client.events().into_iter().filter(Event::critical));
         mirror.advance(STEP);
 
-        let here: HashMap<u32, [f32; 2]> = h.zombies.iter().chain(&h.burrowed).map(|z| (z.id, z.pos)).collect();
+        let here: HashMap<u32, [f32; 2]> = h
+            .zombies
+            .iter()
+            .chain(&h.burrowed)
+            .map(|z| (z.id, z.pos))
+            .collect();
         zombie_sum += here.len() as u64;
         report.zombies_most = report.zombies_most.max(here.len());
         let at = mirror.render_tick().round().max(0.0) as u32;
@@ -788,7 +1069,10 @@ mod tests {
             z.id = i as u32 + 1;
         }
         let n = h.zombies.len() + h.burrowed.len();
-        let (mut extract, mut links) = (Extract::default(), vec![HostLink::default(), HostLink::default()]);
+        let (mut extract, mut links) = (
+            Extract::default(),
+            vec![HostLink::default(), HostLink::default()],
+        );
         let start = std::time::Instant::now();
         let (mut sounds, mut encode) = (Vec::new(), std::time::Duration::ZERO);
         let ticks = 600u32;
@@ -811,7 +1095,11 @@ mod tests {
             sounds.clear();
         }
         let per_tick = encode.as_secs_f64() * 1000.0 / ticks as f64;
-        eprintln!("{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s", links[0].bytes as f64 / (ticks as f64 / 60.0), start.elapsed().as_secs_f64());
+        eprintln!(
+            "{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s",
+            links[0].bytes as f64 / (ticks as f64 / 60.0),
+            start.elapsed().as_secs_f64()
+        );
     }
 
     #[test]
@@ -821,16 +1109,34 @@ mod tests {
         let mut sounds = Vec::new();
         h.explode(at, 40.0, 10.0, &mut sounds);
         let fresh = Extract::default().record(&h, 1, &sounds);
-        assert!(fresh.spawns.iter().all(|s| !matches!(s.what, Spawn::Fx { .. })), "its sprite and smoke ride with the event, never a spawn that can be cut");
-        let blasts: Vec<Event> = fresh.events.into_iter().filter(|e| matches!(e, Event::Blast { .. })).collect();
+        assert!(
+            fresh
+                .spawns
+                .iter()
+                .all(|s| !matches!(s.what, Spawn::Fx { .. })),
+            "its sprite and smoke ride with the event, never a spawn that can be cut"
+        );
+        let blasts: Vec<Event> = fresh
+            .events
+            .into_iter()
+            .filter(|e| matches!(e, Event::Blast { .. }))
+            .collect();
         assert_eq!(blasts.len(), 1, "one blast event for the one blast");
         assert!(blasts[0].critical(), "sent until the client has it");
         assert!(h.net.blasts.borrow().is_empty(), "taken for this tick");
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
         assert!(client.juice.flashes.is_empty() && client.juice.rings.is_empty());
         client.client_event(blasts[0], &mut sounds);
-        assert!(!client.juice.flashes.is_empty() && !client.juice.rings.is_empty(), "the client lights it as the host does");
-        assert!(len(sub(client.juice.rings[0].center, at)) < 0.1, "{:?} for {:?}", client.juice.rings[0].center, at);
+        assert!(
+            !client.juice.flashes.is_empty() && !client.juice.rings.is_empty(),
+            "the client lights it as the host does"
+        );
+        assert!(
+            len(sub(client.juice.rings[0].center, at)) < 0.1,
+            "{:?} for {:?}",
+            client.juice.rings[0].center,
+            at
+        );
         assert_eq!(client.fx.len(), 2, "the explosion and its smoke");
     }
 
@@ -838,15 +1144,49 @@ mod tests {
     fn a_client_draws_a_homing_shot_without_a_gap_close_to_the_host_and_sees_it_pop() {
         let mut h = Harvest::calm(3).with_players(2).hosting(1);
         let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
-        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
+        let mut z = super::super::Zombie::new(
+            super::super::Kind::named("big"),
+            [from[0] + 40.0, from[1] + 96.0],
+            500.0,
+            1.0,
+            0.0,
+        );
         z.id = 77;
         h.zombies.push(z);
-        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false, arc: [0.0; 2] };
-        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
+        let steer = super::super::Steer {
+            turn: 3.0,
+            target: Some(77),
+            leg: (from, 0.0, [120.0, 0.0]),
+            pop: 14.0,
+            through: false,
+            arc: [0.0; 2],
+        };
+        h.bullets.push(super::super::Bullet {
+            pos: from,
+            vel: [120.0, 0.0],
+            damage: 5.0,
+            pierce: 0,
+            life: 3.0,
+            force: 0.0,
+            hit: Vec::new(),
+            look: None,
+            age: 0.0,
+            by: None,
+            owner: 0,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer,
+        });
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
-        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        let (mut extract, mut host, mut link, mut mirror) = (
+            Extract::default(),
+            HostLink::default(),
+            ClientLink::default(),
+            Mirror::default(),
+        );
         mirror.play_locally(1);
-        let (mut past, mut seen, mut worst, mut gaps, mut runs) = (HashMap::new(), 0, 0.0f32, 0, HashSet::new());
+        let (mut past, mut seen, mut worst, mut gaps, mut runs) =
+            (HashMap::new(), 0, 0.0f32, 0, HashSet::new());
         let mut sounds = Vec::new();
         for tick in 1..=240u32 {
             h.move_bullets(STEP, &mut sounds);
@@ -875,7 +1215,10 @@ mod tests {
             }
             mirror.advance(STEP);
             let at = mirror.render_tick();
-            let Some(&host_at) = past.get(&(at.floor() as u32)).filter(|_| at.fract() == 0.0) else { continue };
+            let Some(&host_at) = past.get(&(at.floor() as u32)).filter(|_| at.fract() == 0.0)
+            else {
+                continue;
+            };
             let shots = mirror.shots_for(&[]);
             match shots.first() {
                 Some((p, _, s)) => {
@@ -887,27 +1230,70 @@ mod tests {
                 None => {}
             }
         }
-        assert!(h.bullets.is_empty() && h.zombies[0].hp < 500.0, "it curved onto the zombie and popped");
-        assert!(seen > 30 && gaps == 0, "drawn {seen} ticks with {gaps} blank");
+        assert!(
+            h.bullets.is_empty() && h.zombies[0].hp < 500.0,
+            "it curved onto the zombie and popped"
+        );
+        assert!(
+            seen > 30 && gaps == 0,
+            "drawn {seen} ticks with {gaps} blank"
+        );
         assert!(worst < 4.0, "drawn {worst} px off");
         assert!(runs.len() > 3, "{} runs", runs.len());
         let pop = super::super::effects::effects().named("pop").unwrap();
-        assert!(client.fx.iter().any(|f| f.frames == pop.frames), "the client plays its pop");
+        assert!(
+            client.fx.iter().any(|f| f.frames == pop.frames),
+            "the client plays its pop"
+        );
     }
 
     #[test]
     fn a_client_draws_an_arcing_homing_shot_as_high_as_the_host_across_its_runs() {
         let mut h = Harvest::calm(3).with_players(2).hosting(1);
         let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
-        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
+        let mut z = super::super::Zombie::new(
+            super::super::Kind::named("big"),
+            [from[0] + 40.0, from[1] + 96.0],
+            500.0,
+            1.0,
+            0.0,
+        );
         z.id = 77;
         h.zombies.push(z);
-        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [110.0, 0.0]), pop: 14.0, through: false, arc: [40.0, 1.2] };
-        h.bullets.push(super::super::Bullet { pos: from, vel: [110.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
+        let steer = super::super::Steer {
+            turn: 3.0,
+            target: Some(77),
+            leg: (from, 0.0, [110.0, 0.0]),
+            pop: 14.0,
+            through: false,
+            arc: [40.0, 1.2],
+        };
+        h.bullets.push(super::super::Bullet {
+            pos: from,
+            vel: [110.0, 0.0],
+            damage: 5.0,
+            pierce: 0,
+            life: 3.0,
+            force: 0.0,
+            hit: Vec::new(),
+            look: None,
+            age: 0.0,
+            by: None,
+            owner: 0,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer,
+        });
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
-        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        let (mut extract, mut host, mut link, mut mirror) = (
+            Extract::default(),
+            HostLink::default(),
+            ClientLink::default(),
+            Mirror::default(),
+        );
         mirror.play_locally(1);
-        let (mut past, mut runs, mut worst, mut peak, mut seen) = (HashMap::from([(0, 0.0)]), Vec::new(), 0.0f32, 0.0f32, 0);
+        let (mut past, mut runs, mut worst, mut peak, mut seen) =
+            (HashMap::from([(0, 0.0)]), Vec::new(), 0.0f32, 0.0f32, 0);
         let mut sounds = Vec::new();
         for tick in 1..=240u32 {
             h.move_bullets(STEP, &mut sounds);
@@ -937,7 +1323,12 @@ mod tests {
             client.client_frame(&mirror, STEP, &mut sounds);
             sounds.clear();
             let at = mirror.render_tick();
-            let (Some(b), Some(id)) = (client.bullets.first(), mirror.shots_for(&[]).first().map(|s| s.2.id)) else { continue };
+            let (Some(b), Some(id)) = (
+                client.bullets.first(),
+                mirror.shots_for(&[]).first().map(|s| s.2.id),
+            ) else {
+                continue;
+            };
             if at.fract() != 0.0 || !past.contains_key(&(at as u32)) {
                 continue;
             }
@@ -945,12 +1336,20 @@ mod tests {
                 runs.push(id);
             }
             // Its first run is sent from where it was fired, a tick before the host first moved it, so it is drawn there a tick late.
-            let host_at = if runs.len() == 1 { at as u32 - 1 } else { at as u32 };
+            let host_at = if runs.len() == 1 {
+                at as u32 - 1
+            } else {
+                at as u32
+            };
             seen += 1;
             worst = worst.max((b.up(b.age) - past[&host_at]).abs());
             peak = peak.max(b.up(b.age));
         }
-        assert!(seen > 30 && runs.len() > 3, "compared {seen} ticks over {} runs", runs.len());
+        assert!(
+            seen > 30 && runs.len() > 3,
+            "compared {seen} ticks over {} runs",
+            runs.len()
+        );
         assert!(peak > 30.0, "it climbed on the client: {peak}");
         assert!(worst < 0.1, "drawn {worst} px off the host's height");
     }
@@ -959,9 +1358,26 @@ mod tests {
     fn a_client_draws_a_merged_heart_with_its_hearts() {
         let mut h = Harvest::calm(3).with_players(2);
         let at = [h.players[0].pos[0] + 80.0, h.players[0].pos[1]];
-        h.drops.push(Drop { kind: DropKind::Money(9), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 0, dog: None, hearts: 5 });
+        h.drops.push(Drop {
+            kind: DropKind::Money(9),
+            pos: at,
+            z: 0.0,
+            vz: 0.0,
+            vel: [0.0; 2],
+            age: 1.0,
+            pulled: None,
+            to: 0,
+            dog: None,
+            hearts: 5,
+        });
         let world = Extract::default().world(&h, 1000, &[0, 0]);
-        assert!(world.things.iter().any(|t| t.1.kind == T_MONEY && t.1.data[..2] == [9, 5]), "its XP and its hearts");
+        assert!(
+            world
+                .things
+                .iter()
+                .any(|t| t.1.kind == T_MONEY && t.1.data[..2] == [9, 5]),
+            "its XP and its hearts"
+        );
     }
 
     #[test]
@@ -975,19 +1391,47 @@ mod tests {
         for _ in 0..90 {
             h.update(&crate::Input::default(), STEP, &mut sounds);
         }
-        assert_eq!(h.players.iter().map(|p| p.dogs.len()).collect::<Vec<_>>(), [6, 6], "the 6-dog pack, each");
+        assert_eq!(
+            h.players.iter().map(|p| p.dogs.len()).collect::<Vec<_>>(),
+            [6, 6],
+            "the 6-dog pack, each"
+        );
         let d = &h.players[1].dogs[2];
         let mouth = [d.pos[0] + d.heading[0] * 5.0, d.pos[1] + d.heading[1] * 2.0];
-        let fetch = Fetch { player: 1, def: d.def, slot: d.slot, carried: true };
-        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch), hearts: 1 });
+        let fetch = Fetch {
+            player: 1,
+            def: d.def,
+            slot: d.slot,
+            carried: true,
+        };
+        h.drops.push(Drop {
+            kind: DropKind::Money(2),
+            pos: mouth,
+            z: 4.0,
+            vz: 0.0,
+            vel: [0.0; 2],
+            age: 1.0,
+            pulled: None,
+            to: 1,
+            dog: Some(fetch),
+            hearts: 1,
+        });
 
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
-        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        let (mut extract, mut host, mut link, mut mirror) = (
+            Extract::default(),
+            HostLink::default(),
+            ClientLink::default(),
+            Mirror::default(),
+        );
         mirror.play_locally(1);
         for k in 1..=12u32 {
             let tick = 1000 + k * SEND_EVERY;
             let world = extract.world(&h, tick, &[0, 0]);
-            assert!(world.things.iter().all(|t| t.1.kind != T_MONEY), "the carried heart rides with its dog, not as a thing");
+            assert!(
+                world.things.iter().all(|t| t.1.kind != T_MONEY),
+                "the carried heart rides with its dog, not as a thing"
+            );
             for p in host.snapshot(world) {
                 if let Some(part) = link.receive(&p) {
                     mirror.apply(&part);
@@ -1000,25 +1444,68 @@ mod tests {
         }
         for (seat, shown) in [(1, 0), (0, 1)] {
             let (host_dogs, drawn) = (&h.players[seat].dogs, &client.players[shown].dogs);
-            assert_eq!(drawn.len(), host_dogs.len(), "seat {seat}'s dogs, with their own player");
+            assert_eq!(
+                drawn.len(),
+                host_dogs.len(),
+                "seat {seat}'s dogs, with their own player"
+            );
             for d in host_dogs {
-                let c = drawn.iter().find(|c| (c.def, c.slot) == (d.def, d.slot)).unwrap();
-                assert!(len(sub(c.pos, d.pos)) < 0.05, "seat {seat} dog {}: {:?} for {:?}", d.slot, c.pos, d.pos);
-                assert!(len(sub(c.heading, d.heading)) < 0.03 && (c.anim - d.anim).abs() <= 1.0 / 128.0 && c.leap == d.leap, "drawn as the host draws it");
+                let c = drawn
+                    .iter()
+                    .find(|c| (c.def, c.slot) == (d.def, d.slot))
+                    .unwrap();
+                assert!(
+                    len(sub(c.pos, d.pos)) < 0.05,
+                    "seat {seat} dog {}: {:?} for {:?}",
+                    d.slot,
+                    c.pos,
+                    d.pos
+                );
+                assert!(
+                    len(sub(c.heading, d.heading)) < 0.03
+                        && (c.anim - d.anim).abs() <= 1.0 / 128.0
+                        && c.leap == d.leap,
+                    "drawn as the host draws it"
+                );
             }
         }
         for (seat, shown) in [(1, 0), (0, 1)] {
-            assert_eq!(client.players[shown].drones.len(), h.players[seat].drones.len(), "seat {seat}'s drones");
+            assert_eq!(
+                client.players[shown].drones.len(),
+                h.players[seat].drones.len(),
+                "seat {seat}'s drones"
+            );
             for d in &h.players[seat].drones {
-                let c = client.players[shown].drones.iter().find(|c| (c.def, c.slot) == (d.def, d.slot)).unwrap();
-                assert!(len(sub(c.pos, d.pos)) < 0.05 && (c.anim - d.anim).abs() <= 1.0 / 128.0, "seat {seat} drone {}", d.slot);
+                let c = client.players[shown]
+                    .drones
+                    .iter()
+                    .find(|c| (c.def, c.slot) == (d.def, d.slot))
+                    .unwrap();
+                assert!(
+                    len(sub(c.pos, d.pos)) < 0.05 && (c.anim - d.anim).abs() <= 1.0 / 128.0,
+                    "seat {seat} drone {}",
+                    d.slot
+                );
             }
         }
-        let hearts: Vec<&Drop> = client.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).collect();
+        let hearts: Vec<&Drop> = client
+            .drops
+            .iter()
+            .filter(|d| matches!(d.kind, DropKind::Money(_)))
+            .collect();
         assert_eq!(hearts.len(), 1, "the carried heart, once");
         assert!(hearts[0].kind == DropKind::Money(2), "the heart's money");
-        assert_eq!(hearts[0].dog.map(|f| (f.player, f.def, f.slot, f.carried)), Some((0, fetch.def, fetch.slot, true)), "in seat 1's dog's mouth, seat 1 being this client's first player");
-        assert!(len(sub(hearts[0].pos, mouth)) < 0.2 && hearts[0].z == 4.0, "{:?} for {:?}", hearts[0].pos, mouth);
+        assert_eq!(
+            hearts[0].dog.map(|f| (f.player, f.def, f.slot, f.carried)),
+            Some((0, fetch.def, fetch.slot, true)),
+            "in seat 1's dog's mouth, seat 1 being this client's first player"
+        );
+        assert!(
+            len(sub(hearts[0].pos, mouth)) < 0.2 && hearts[0].z == 4.0,
+            "{:?} for {:?}",
+            hearts[0].pos,
+            mouth
+        );
     }
 
     #[test]
@@ -1028,12 +1515,22 @@ mod tests {
         h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
         h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
         let at = [h.players[0].pos[0] + 30.0, h.players[0].pos[1]];
-        h.zombies.push(super::super::Zombie::new(super::super::Kind::named("big"), at, 5000.0, 1.0, 0.0));
+        h.zombies.push(super::super::Zombie::new(
+            super::super::Kind::named("big"),
+            at,
+            5000.0,
+            1.0,
+            0.0,
+        ));
         let (mut extract, mut sounds) = (Extract::default(), Vec::new());
         let sent = (1..=300u32).any(|tick| {
             h.update(&crate::Input::default(), STEP, &mut sounds);
             sounds.clear();
-            extract.record(&h, tick, &[]).spawns.iter().any(|s| matches!(s.what, Spawn::Bolt { .. }))
+            extract
+                .record(&h, tick, &[])
+                .spawns
+                .iter()
+                .any(|s| matches!(s.what, Spawn::Bolt { .. }))
         });
         assert!(sent);
     }
@@ -1047,7 +1544,13 @@ mod tests {
         let (mut extract, mut sounds, mut bolts) = (Extract::default(), Vec::new(), Vec::new());
         for tick in 1..=600u32 {
             h.update(&crate::Input::default(), STEP, &mut sounds);
-            bolts.extend(extract.record(&h, tick, &sounds).spawns.into_iter().filter(|s| matches!(s.what, Spawn::Bolt { .. })));
+            bolts.extend(
+                extract
+                    .record(&h, tick, &sounds)
+                    .spawns
+                    .into_iter()
+                    .filter(|s| matches!(s.what, Spawn::Bolt { .. })),
+            );
             sounds.clear();
             if !h.stakes.is_empty() && !bolts.is_empty() {
                 break;
@@ -1056,11 +1559,18 @@ mod tests {
         assert_eq!(h.stakes.len(), 1, "the host drove a stake in");
         assert!(!bolts.is_empty(), "its arc rides to clients as a bolt");
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
-        let (mut host, mut link, mut mirror) = (HostLink::default(), ClientLink::default(), Mirror::default());
+        let (mut host, mut link, mut mirror) = (
+            HostLink::default(),
+            ClientLink::default(),
+            Mirror::default(),
+        );
         mirror.play_locally(1);
         for k in 1..=4u32 {
             let world = extract.world(&h, 2000 + k * SEND_EVERY, &[0, 0]);
-            assert_eq!(world.things.iter().filter(|t| t.1.kind == T_STAKE).count(), 1);
+            assert_eq!(
+                world.things.iter().filter(|t| t.1.kind == T_STAKE).count(),
+                1
+            );
             for p in host.snapshot(world) {
                 if let Some(part) = link.receive(&p) {
                     mirror.apply(&part);
@@ -1079,14 +1589,33 @@ mod tests {
 
     #[test]
     fn a_client_over_a_lossy_link_keeps_close_to_the_host() {
-        let plan = Plan { until: Some(40.0), ..Plan::new(Vec::new()) };
-        let r = net_sim(&plan, NetSim { loss: 0.2, latency_ms: 80, jitter_ms: 30 });
+        let plan = Plan {
+            until: Some(40.0),
+            ..Plan::new(Vec::new())
+        };
+        let r = net_sim(
+            &plan,
+            NetSim {
+                loss: 0.2,
+                latency_ms: 80,
+                jitter_ms: 30,
+            },
+        );
         assert!(r.zombies_most > 0);
         assert!(r.biggest_packet <= BUDGET);
         assert_eq!(r.undecodable, 0);
-        assert!(r.events_in_order && r.events_delivered + 5 >= r.events_made, "{} of {}", r.events_delivered, r.events_made);
-        assert!(r.zombies_then.mean < 1.0 && r.zombies_now.mean < 8.0, "{:?} {:?}", r.zombies_then, r.zombies_now);
+        assert!(
+            r.events_in_order && r.events_delivered + 5 >= r.events_made,
+            "{} of {}",
+            r.events_delivered,
+            r.events_made
+        );
+        assert!(
+            r.zombies_then.mean < 1.0 && r.zombies_now.mean < 8.0,
+            "{:?} {:?}",
+            r.zombies_then,
+            r.zombies_now
+        );
         assert!(r.prediction.mean < 4.0, "{:?}", r.prediction);
     }
 }
-

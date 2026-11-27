@@ -5,7 +5,10 @@ use std::num::NonZeroU32;
 use std::time::Instant;
 
 use glutin::config::{ConfigTemplateBuilder, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile, NotCurrentGlContext, PossiblyCurrentContext, Version};
+use glutin::context::{
+    ContextApi, ContextAttributesBuilder, GlProfile, NotCurrentGlContext, PossiblyCurrentContext,
+    Version,
+};
 use glutin::display::{GetGlDisplay, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SwapInterval, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
@@ -29,24 +32,37 @@ const WINDOW: [f32; 2] = [1500.0, 750.0];
 /// Builds the game beside this editor, so it packs the sprites as saved, then opens it on its weapon range trying
 /// `setup`; the build runs off the editor's thread and a failed one falls back to the last build.
 fn try_in_game(setup: &str) -> Result<(), String> {
-    let game = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("last-harvest");
+    let game = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .with_file_name("last-harvest");
     let file = std::env::temp_dir().join(format!("last-harvest-range-{}.txt", std::process::id()));
     std::fs::write(&file, setup).map_err(|e| format!("{}: {e}", file.display()))?;
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::thread::spawn(move || {
         let mut build = std::process::Command::new("cargo");
-        build.current_dir(&root).args(["build", "-p", "last-harvest"]);
+        build
+            .current_dir(&root)
+            .args(["build", "-p", "last-harvest"]);
         if !cfg!(debug_assertions) {
             build.arg("--release");
         }
         match build.status() {
             Ok(s) if s.success() => {}
-            other => eprintln!("Try it: building the game failed ({other:?}); trying the last build"),
+            other => {
+                eprintln!("Try it: building the game failed ({other:?}); trying the last build")
+            }
         }
         if !game.exists() {
-            return eprintln!("Try it: no game at {}: cargo build -p last-harvest", game.display());
+            return eprintln!(
+                "Try it: no game at {}: cargo build -p last-harvest",
+                game.display()
+            );
         }
-        if let Err(e) = std::process::Command::new(&game).env("LAST_HARVEST_START", "range").env("LAST_HARVEST_RANGE", &file).spawn() {
+        if let Err(e) = std::process::Command::new(&game)
+            .env("LAST_HARVEST_START", "range")
+            .env("LAST_HARVEST_RANGE", &file)
+            .spawn()
+        {
             eprintln!("Try it: {}: {e}", game.display());
         }
     });
@@ -82,19 +98,28 @@ impl App {
     fn new() -> Self {
         let store = FsStore::default();
         eprintln!("sprites: {}", store.dir.display());
-        let remote = std::env::var("SPRITE_EDITOR_REMOTE").ok().and_then(|p| match p.parse().map_err(|e| format!("SPRITE_EDITOR_REMOTE: {e}")).and_then(remote::listen) {
-            Ok(rx) => {
-                eprintln!("remote: http://127.0.0.1:{p}");
-                Some(rx)
-            }
-            Err(e) => {
-                eprintln!("{e}");
-                None
+        let remote = std::env::var("SPRITE_EDITOR_REMOTE").ok().and_then(|p| {
+            match p
+                .parse()
+                .map_err(|e| format!("SPRITE_EDITOR_REMOTE: {e}"))
+                .and_then(remote::listen)
+            {
+                Ok(rx) => {
+                    eprintln!("remote: http://127.0.0.1:{p}");
+                    Some(rx)
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    None
+                }
             }
         });
         Self {
             gl: None,
-            studio: Studio::new(Box::new(store), &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_default()),
+            studio: Studio::new(
+                Box::new(store),
+                &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_default(),
+            ),
             cursor: [0.0; 2],
             modifiers: ModifiersState::empty(),
             last: Instant::now(),
@@ -115,11 +140,24 @@ impl App {
             if call.method == "GET" && call.path == "/shot.png" {
                 self.shots.push(call.reply);
             } else if call.method == "POST" && call.path.starts_with("/view") {
-                let arg = |k: &str| call.path.split_once('?').into_iter().flat_map(|(_, q)| q.split('&')).find_map(|p| p.strip_prefix(k)?.strip_prefix('=')?.parse::<f32>().ok()).unwrap_or(0.0);
+                let arg = |k: &str| {
+                    call.path
+                        .split_once('?')
+                        .into_iter()
+                        .flat_map(|(_, q)| q.split('&'))
+                        .find_map(|p| p.strip_prefix(k)?.strip_prefix('=')?.parse::<f32>().ok())
+                        .unwrap_or(0.0)
+                };
                 self.studio.turn_view(arg("yaw"), arg("closer"));
-                let _ = call.reply.send((200, "text/plain; charset=utf-8", b"turned".to_vec()));
+                let _ = call
+                    .reply
+                    .send((200, "text/plain; charset=utf-8", b"turned".to_vec()));
             } else {
-                let _ = call.reply.send(self.studio.editor.remote(&call.method, &call.path, &call.body));
+                let _ = call.reply.send(self.studio.editor.remote(
+                    &call.method,
+                    &call.path,
+                    &call.body,
+                ));
             }
         }
         if let Some(pixels) = self.studio.tick(dt) {
@@ -134,7 +172,11 @@ impl App {
         let s = g.window.scale_factor() as f32;
         let px = |v: f32| (v * s).round() as i32;
         for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.size)) {
-            g.renderer.draw(&g.gl, canvas, [px(x), px(self.size[1] - y - h), px(w), px(h)]);
+            g.renderer.draw(
+                &g.gl,
+                canvas,
+                [px(x), px(self.size[1] - y - h), px(w), px(h)],
+            );
         }
         self.frames += 1;
         // SPRITE_EDITOR_SHOT saves the window once the previews have settled, then quits: for checking the editor from scripts.
@@ -151,7 +193,10 @@ impl App {
         }
         if !self.shots.is_empty() {
             let size = g.window.inner_size();
-            let reply = shot_png(&g.gl, size.width, size.height).map_or_else(|e| (500, "text/plain; charset=utf-8", e.to_string().into_bytes()), |png| (200, "image/png", png));
+            let reply = shot_png(&g.gl, size.width, size.height).map_or_else(
+                |e| (500, "text/plain; charset=utf-8", e.to_string().into_bytes()),
+                |png| (200, "image/png", png),
+            );
             for to in self.shots.drain(..) {
                 let _ = to.send(reply.clone());
             }
@@ -187,7 +232,10 @@ impl App {
             WKey::Named(NamedKey::ArrowLeft) => Key::Left,
             WKey::Named(NamedKey::ArrowRight) => Key::Right,
             WKey::Named(NamedKey::F12) => {
-                self.shot = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/editor-{}.png", self.frames)));
+                self.shot = Some(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join(format!("../../target/editor-{}.png", self.frames)),
+                );
                 return;
             }
             _ => return,
@@ -203,8 +251,12 @@ fn dock_icon() {
     use objc2::{AllocAnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
-    let Some(mtm) = MainThreadMarker::new() else { return };
-    let data = NSData::with_bytes(include_bytes!("../../../assets/private/icons/editor-512.png"));
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!(
+        "../../../assets/private/icons/editor-512.png"
+    ));
     if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
         // SAFETY: on the main thread, with an image AppKit decoded itself.
         unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
@@ -235,23 +287,36 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => el.exit(),
             WindowEvent::Resized(size) => {
-                if let (Some(g), Some(w), Some(h)) = (&self.gl, NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
+                if let (Some(g), Some(w), Some(h)) = (
+                    &self.gl,
+                    NonZeroU32::new(size.width),
+                    NonZeroU32::new(size.height),
+                ) {
                     g.surface.resize(&g.context, w, h);
                     self.size = logical(&g.window, size);
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
                 self.modifiers = m.state();
-                self.studio.editor.peek(self.i_held || self.modifiers.alt_key());
+                self.studio
+                    .editor
+                    .peek(self.i_held || self.modifiers.alt_key());
             }
             // I and Option hold the color picker; letting go returns to the tool.
-            WindowEvent::KeyboardInput { event, .. } if matches!(&event.logical_key, WKey::Character(c) if c.eq_ignore_ascii_case("i")) && !self.studio.editor.wants_text() => {
+            WindowEvent::KeyboardInput { event, .. }
+                if matches!(&event.logical_key, WKey::Character(c) if c.eq_ignore_ascii_case("i"))
+                    && !self.studio.editor.wants_text() =>
+            {
                 if !event.repeat {
                     self.i_held = event.state == ElementState::Pressed;
-                    self.studio.editor.peek(self.i_held || self.modifiers.alt_key());
+                    self.studio
+                        .editor
+                        .peek(self.i_held || self.modifiers.alt_key());
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => self.key(&event.logical_key),
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.key(&event.logical_key)
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 let s = self.gl.as_ref().map_or(1.0, |g| g.window.scale_factor()) as f32;
                 let now = [position.x as f32 / s, position.y as f32 / s];
@@ -263,8 +328,15 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state, button, .. } => {
                 let (pane, p) = Studio::locate(self.size, self.cursor);
                 match state {
-                    ElementState::Pressed if matches!(button, MouseButton::Left | MouseButton::Right) => {
-                        self.studio.press(pane, p, button == MouseButton::Right, self.modifiers.shift_key());
+                    ElementState::Pressed
+                        if matches!(button, MouseButton::Left | MouseButton::Right) =>
+                    {
+                        self.studio.press(
+                            pane,
+                            p,
+                            button == MouseButton::Right,
+                            self.modifiers.shift_key(),
+                        );
                     }
                     ElementState::Pressed => {}
                     ElementState::Released => self.studio.release(),
@@ -297,19 +369,34 @@ fn logical(window: &Window, size: PhysicalSize<u32>) -> [f32; 2] {
 
 /// `WINDOW`, or as much of the primary screen as keeps its shape when that's smaller.
 fn fit(el: &ActiveEventLoop) -> [f32; 2] {
-    let Some(m) = el.primary_monitor().or_else(|| el.available_monitors().next()) else { return WINDOW };
+    let Some(m) = el
+        .primary_monitor()
+        .or_else(|| el.available_monitors().next())
+    else {
+        return WINDOW;
+    };
     let screen = m.size().to_logical::<f32>(m.scale_factor());
-    let w = WINDOW[0].min(screen.width * 0.95).min(screen.height * 0.85 * WINDOW[0] / WINDOW[1]).max(400.0);
+    let w = WINDOW[0]
+        .min(screen.width * 0.95)
+        .min(screen.height * 0.85 * WINDOW[0] / WINDOW[1])
+        .max(400.0);
     [w.floor(), (w * WINDOW[1] / WINDOW[0]).floor()]
 }
 
 fn open(el: &ActiveEventLoop) -> Result<Gl, Box<dyn Error>> {
     let [w, h] = fit(el);
-    let attrs = Window::default_attributes().with_title("LastHarvest sprite editor").with_inner_size(LogicalSize::new(w, h)).with_resizable(true);
+    let attrs = Window::default_attributes()
+        .with_title("LastHarvest sprite editor")
+        .with_inner_size(LogicalSize::new(w, h))
+        .with_resizable(true);
     let template = ConfigTemplateBuilder::new().with_depth_size(24);
     let (window, config) = DisplayBuilder::new()
         .with_window_attributes(Some(attrs))
-        .build(el, template, |configs| configs.max_by_key(|c| (c.depth_size().min(24), c.num_samples().min(4))).expect("no GL config"))?;
+        .build(el, template, |configs| {
+            configs
+                .max_by_key(|c| (c.depth_size().min(24), c.num_samples().min(4)))
+                .expect("no GL config")
+        })?;
     let window = window.ok_or("no window")?;
     let context_attrs = ContextAttributesBuilder::new()
         .with_profile(GlProfile::Core)
@@ -320,17 +407,40 @@ fn open(el: &ActiveEventLoop) -> Result<Gl, Box<dyn Error>> {
     let surface_attrs = window.build_surface_attributes(Default::default())?;
     let surface = unsafe { display.create_window_surface(&config, &surface_attrs)? };
     let context = not_current.make_current(&surface)?;
-    surface.set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN)).ok();
+    surface
+        .set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN))
+        .ok();
     let gl = unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
     let renderer = Renderer::new(&gl, Profile::Desktop)?;
-    Ok(Gl { window, surface, context, gl, renderer })
+    Ok(Gl {
+        window,
+        surface,
+        context,
+        gl,
+        renderer,
+    })
 }
 
 fn shot_png(gl: &glow::Context, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn Error>> {
     use glow::HasContext;
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    unsafe { gl.read_pixels(0, 0, w as i32, h as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut rgba))) };
-    let rows: Vec<u8> = rgba.chunks_exact((w * 4) as usize).rev().flatten().copied().collect();
+    unsafe {
+        gl.read_pixels(
+            0,
+            0,
+            w as i32,
+            h as i32,
+            glow::RGBA,
+            glow::UNSIGNED_BYTE,
+            glow::PixelPackData::Slice(Some(&mut rgba)),
+        )
+    };
+    let rows: Vec<u8> = rgba
+        .chunks_exact((w * 4) as usize)
+        .rev()
+        .flatten()
+        .copied()
+        .collect();
     let mut out = Vec::new();
     let mut enc = png::Encoder::new(&mut out, w, h);
     enc.set_color(png::ColorType::Rgba);
@@ -339,7 +449,12 @@ fn shot_png(gl: &glow::Context, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn Error
     Ok(out)
 }
 
-fn save_shot(gl: &glow::Context, w: u32, h: u32, path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+fn save_shot(
+    gl: &glow::Context,
+    w: u32,
+    h: u32,
+    path: &std::path::Path,
+) -> Result<(), Box<dyn Error>> {
     Ok(std::fs::write(path, shot_png(gl, w, h)?)?)
 }
 

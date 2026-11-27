@@ -3,9 +3,9 @@
 //! ever held in memory.
 
 use std::io::Cursor;
+use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{Receiver, sync_channel};
-use std::sync::Arc;
 
 use lewton::inside_ogg::OggStreamReader;
 
@@ -96,7 +96,12 @@ struct Pass {
 
 impl Decoder {
     fn new(bytes: Vec<u8>, rate: f32) -> Self {
-        Self { bytes: bytes.into(), rate, pass: None, silent: false }
+        Self {
+            bytes: bytes.into(),
+            rate,
+            pass: None,
+            silent: false,
+        }
     }
 
     /// The next chunk of frames, or None once the file has stopped reading.
@@ -109,8 +114,19 @@ impl Decoder {
                 };
                 let channels = reader.ident_hdr.audio_channels as usize;
                 let step = reader.ident_hdr.audio_sample_rate as f32 / self.rate;
-                let resample = Resample { step, at: 0.0, prev: None };
-                self.pass = Some(Pass { reader, channels, resample, out: Vec::with_capacity(CHUNK + HOLD), decoded: 0, sent: false });
+                let resample = Resample {
+                    step,
+                    at: 0.0,
+                    prev: None,
+                };
+                self.pass = Some(Pass {
+                    reader,
+                    channels,
+                    resample,
+                    out: Vec::with_capacity(CHUNK + HOLD),
+                    decoded: 0,
+                    sent: false,
+                });
             }
             let p = self.pass.as_mut()?;
             if p.out.len() >= CHUNK + HOLD {
@@ -120,12 +136,20 @@ impl Decoder {
             if let Ok(Some(packet)) = p.reader.read_dec_packet_itl() {
                 for f in packet.chunks_exact(p.channels) {
                     let s = |v: i16| v as f32 / 32768.0;
-                    p.resample.push([s(f[0]), s(f[(p.channels > 1) as usize])], &mut p.out);
+                    p.resample
+                        .push([s(f[0]), s(f[(p.channels > 1) as usize])], &mut p.out);
                 }
                 p.decoded += (packet.len() / p.channels) as u64;
                 continue;
             }
-            let Pass { reader, resample, mut out, decoded, sent, .. } = self.pass.take()?;
+            let Pass {
+                reader,
+                resample,
+                mut out,
+                decoded,
+                sent,
+                ..
+            } = self.pass.take()?;
             // The last page's granule position is the true length: drop the padding past it.
             if let Some(length) = reader.get_last_absgp() {
                 let extra = (decoded.saturating_sub(length) as f32 / resample.step) as usize;
@@ -149,10 +173,15 @@ struct Resample {
 
 impl Resample {
     fn push(&mut self, cur: [f32; 2], out: &mut Vec<[f32; 2]>) {
-        let Some(prev) = self.prev.replace(cur) else { return };
+        let Some(prev) = self.prev.replace(cur) else {
+            return;
+        };
         while self.at < 1.0 {
             let t = self.at;
-            out.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+            out.push([
+                prev[0] + (cur[0] - prev[0]) * t,
+                prev[1] + (cur[1] - prev[1]) * t,
+            ]);
             self.at += self.step;
         }
         self.at -= 1.0;
@@ -165,12 +194,19 @@ mod tests {
 
     #[test]
     fn resampling_keeps_the_rate_across_frames() {
-        let mut r = Resample { step: 0.5, at: 0.0, prev: None };
+        let mut r = Resample {
+            step: 0.5,
+            at: 0.0,
+            prev: None,
+        };
         let mut out = Vec::new();
         for i in 0..5 {
             r.push([i as f32; 2], &mut out);
         }
-        assert_eq!(out.iter().map(|f| f[0]).collect::<Vec<_>>(), [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]);
+        assert_eq!(
+            out.iter().map(|f| f[0]).collect::<Vec<_>>(),
+            [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+        );
     }
 
     #[test]
@@ -184,7 +220,11 @@ mod tests {
             .args(["synth", "0.2", "sine", "440"])
             .status()
             .is_ok_and(|s| s.success())
-            && std::process::Command::new("sox").arg(&wav).arg(&ogg).status().is_ok_and(|s| s.success());
+            && std::process::Command::new("sox")
+                .arg(&wav)
+                .arg(&ogg)
+                .status()
+                .is_ok_and(|s| s.success());
         if !made {
             eprintln!("sox isn't installed; skipping");
             return;

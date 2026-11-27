@@ -84,7 +84,9 @@ pub(super) fn about(text: &str) -> Result<String, String> {
 /// would start a comment when it's written back.
 pub(super) fn font_line(key: &str, text: &str, max: usize) -> Result<String, String> {
     if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c) || *c == '#') {
-        return Err(format!("{key} uses letters, digits, spaces and plain punctuation, not {c:?}"));
+        return Err(format!(
+            "{key} uses letters, digits, spaces and plain punctuation, not {c:?}"
+        ));
     }
     match text.chars().count() {
         n if n > max => Err(format!("{key} is at most {max} characters, not {n}")),
@@ -103,7 +105,11 @@ impl Roster {
         let off = if self.all_off(off) { 0 } else { off };
         let on = |i: &usize| off & 1 << i == 0;
         let all = 0..self.enemies.len();
-        all.clone().filter(on).find(|&i| self.enemies[i].arrives(minutes, roll)).or_else(|| all.rev().find(on)).unwrap_or(self.common())
+        all.clone()
+            .filter(on)
+            .find(|&i| self.enemies[i].arrives(minutes, roll))
+            .or_else(|| all.rev().find(on))
+            .unwrap_or(self.common())
     }
 
     pub fn all_off(&self, off: u64) -> bool {
@@ -116,14 +122,26 @@ impl Roster {
         let off = if self.all_off(off) { 0 } else { off };
         let mut out = vec![0.0; self.enemies.len()];
         let mut covered = 0.0f32;
-        for (i, e) in self.enemies.iter().enumerate().filter(|(i, _)| off & 1 << i == 0) {
-            let chance = if minutes >= e.after { (e.chance + e.per_minute * minutes).clamp(0.0, 1.0) } else { 0.0 };
+        for (i, e) in self
+            .enemies
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| off & 1 << i == 0)
+        {
+            let chance = if minutes >= e.after {
+                (e.chance + e.per_minute * minutes).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             if chance > covered {
                 out[i] = chance - covered;
                 covered = chance;
             }
         }
-        let last = (0..self.enemies.len()).rev().find(|i| off & 1 << i == 0).unwrap_or(self.common());
+        let last = (0..self.enemies.len())
+            .rev()
+            .find(|i| off & 1 << i == 0)
+            .unwrap_or(self.common());
         out[last] += 1.0 - covered;
         out
     }
@@ -139,7 +157,10 @@ impl Roster {
         let mut leader = self.enemies[self.leader].id.clone();
         let mut harvester = self.enemies[self.harvester].id.clone();
         for card in cards {
-            let e = Enemy { from_card: true, ..card.enemy.clone() };
+            let e = Enemy {
+                from_card: true,
+                ..card.enemy.clone()
+            };
             if card.leader {
                 leader = e.id.clone();
             }
@@ -159,12 +180,18 @@ impl Roster {
 
 /// The kinds a save turns off, read from comma-separated ids as a mask by place in the roster.
 pub fn off_from_ids(text: &str) -> u64 {
-    text.split(',').filter_map(|id| roster().index(id.trim())).fold(0, |m, i| m | 1 << i)
+    text.split(',')
+        .filter_map(|id| roster().index(id.trim()))
+        .fold(0, |m, i| m | 1 << i)
 }
 
 pub fn off_ids(off: u64) -> String {
     let r = roster();
-    (0..r.enemies.len()).filter(|i| off & 1 << i != 0).map(|i| r.enemies[i].id.as_str()).collect::<Vec<_>>().join(",")
+    (0..r.enemies.len())
+        .filter(|i| off & 1 << i != 0)
+        .map(|i| r.enemies[i].id.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 static CARDS: OnceLock<Vec<Entry>> = OnceLock::new();
@@ -179,27 +206,47 @@ pub fn roster() -> &'static Roster {
 }
 
 fn frames<const N: usize>(name: &str) -> Result<[Art; N], String> {
-    let (_, frames) = art::ALL.iter().find(|(n, _)| *n == name).ok_or_else(|| format!(" no sprite called {name}"))?;
-    <[Art; N]>::try_from(*frames).map_err(|_| format!(" {name} has {} frames, not {N}", frames.len()))
+    let (_, frames) = art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .ok_or_else(|| format!(" no sprite called {name}"))?;
+    <[Art; N]>::try_from(*frames)
+        .map_err(|_| format!(" {name} has {} frames, not {N}", frames.len()))
 }
 
 fn look(prefix: &str) -> Result<Look, String> {
     let walk = |facing: &str| {
         let name = format!("{prefix}_{facing}");
-        let (_, frames) = art::ALL.iter().find(|(n, _)| *n == name).ok_or_else(|| format!(" no sprite called {name}"))?;
+        let (_, frames) = art::ALL
+            .iter()
+            .find(|(n, _)| *n == name)
+            .ok_or_else(|| format!(" no sprite called {name}"))?;
         if !(1..=MAX_WALK).contains(&frames.len()) {
-            return Err(format!(" {name} has {} frames, but a walk has 1 to {MAX_WALK}", frames.len()));
+            return Err(format!(
+                " {name} has {} frames, but a walk has 1 to {MAX_WALK}",
+                frames.len()
+            ));
         }
         Ok(frames.to_vec())
     };
-    Ok(Look { walk: [walk("FRONT")?, walk("SIDE")?, walk("BACK")?], flash: frames(&format!("{prefix}_FLASH"))?, hurt: frames(&format!("{prefix}_HURT"))?, dead: frames(&format!("{prefix}_DEAD")).ok() })
+    Ok(Look {
+        walk: [walk("FRONT")?, walk("SIDE")?, walk("BACK")?],
+        flash: frames(&format!("{prefix}_FLASH"))?,
+        hurt: frames(&format!("{prefix}_HURT"))?,
+        dead: frames(&format!("{prefix}_DEAD")).ok(),
+    })
 }
 
 /// How many frames the editor should let a sprite have, when the game needs a set number or range: the player's
 /// sprites and each zombie's flash and hurt hold one per facing, and a zombie's walk has 1 to `MAX_WALK`.
 pub fn frame_limits(name: &str) -> Option<(usize, usize)> {
     let (prefix, part) = name.rsplit_once('_')?;
-    let zombie = || entries(crate::data::enemies()).ok()?.into_iter().find(|e| e.look.as_ref().is_some_and(|(_, p)| p == prefix));
+    let zombie = || {
+        entries(crate::data::enemies())
+            .ok()?
+            .into_iter()
+            .find(|e| e.look.as_ref().is_some_and(|(_, p)| p == prefix))
+    };
     match part {
         "FLASH" | "HURT" | "DEAD" if prefix == "PLAYER" || zombie().is_some() => Some((3, 3)),
         "FRONT" | "SIDE" | "BACK" if prefix == "PLAYER" => Some((3, 3)),
@@ -231,7 +278,12 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             if entries.iter().any(|e| e.enemy.id == id) {
                 return Err(format!("{n}: [{id}] appears twice"));
             }
-            let blank = Look { walk: std::array::from_fn(|_| vec![art::WHITE; 3]), flash: [art::WHITE; 3], hurt: [art::WHITE; 3], dead: None };
+            let blank = Look {
+                walk: std::array::from_fn(|_| vec![art::WHITE; 3]),
+                flash: [art::WHITE; 3],
+                hurt: [art::WHITE; 3],
+                dead: None,
+            };
             let enemy = Enemy {
                 id: id.to_string(),
                 name: id.to_string(),
@@ -255,13 +307,29 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 heavy: false,
                 from_card: false,
             };
-            entries.push(Entry { enemy, look: None, leader: false, harvester: false, walk: 3 });
+            entries.push(Entry {
+                enemy,
+                look: None,
+                leader: false,
+                harvester: false,
+                walk: 3,
+            });
             continue;
         }
-        let Some(entry) = entries.last_mut() else { return Err(format!("{n}: expected an [enemy] first")) };
+        let Some(entry) = entries.last_mut() else {
+            return Err(format!("{n}: expected an [enemy] first"));
+        };
         let e = &mut entry.enemy;
-        let (key, rest) = line.split_once(char::is_whitespace).map(|(k, r)| (k, r.trim())).unwrap_or((line, ""));
-        let number = || rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"));
+        let (key, rest) = line
+            .split_once(char::is_whitespace)
+            .map(|(k, r)| (k, r.trim()))
+            .unwrap_or((line, ""));
+        let number = || {
+            rest.parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"))
+        };
         match key {
             "name" => e.name = rest.to_string(),
             "about" => e.about = about(rest).map_err(|err| format!("{n}: {err}"))?,
@@ -280,9 +348,21 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "ranged" => e.ranged = number()?.min(RANGED_MAX),
             "burrow" => e.burrow = number()?.min(BURROW_MAX),
             "rise_bite" => e.rise_bite = number()?,
-            "blood" => e.blood = Some(crate::paint::hex(rest).filter(|_| rest.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: blood is a color as RRGGBB, such as 7AA062, not {rest:?}"))?),
+            "blood" => {
+                e.blood = Some(
+                    crate::paint::hex(rest)
+                        .filter(|_| rest.bytes().all(|b| b.is_ascii_hexdigit()))
+                        .ok_or_else(|| {
+                            format!("{n}: blood is a color as RRGGBB, such as 7AA062, not {rest:?}")
+                        })?,
+                )
+            }
             "walk" => {
-                entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
+                entry.walk = rest
+                    .parse()
+                    .ok()
+                    .filter(|n| (1..=MAX_WALK).contains(n))
+                    .ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
             }
             "heavy" if rest.is_empty() => e.heavy = true,
             "leader" if rest.is_empty() => entry.leader = true,
@@ -297,17 +377,29 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
 pub fn parse(text: &str) -> Result<Roster, String> {
     let entries = entries(text)?;
     if entries.is_empty() || entries.len() > MAX_KINDS {
-        return Err(format!(" {} enemies, but there can be 1 to {MAX_KINDS}", entries.len()));
+        return Err(format!(
+            " {} enemies, but there can be 1 to {MAX_KINDS}",
+            entries.len()
+        ));
     }
     let leader = entries.iter().position(|e| e.leader).unwrap_or(0);
     let harvester = entries.iter().position(|e| e.harvester).unwrap_or(0);
     let mut enemies = Vec::new();
-    for Entry { mut enemy, look: at, .. } in entries {
+    for Entry {
+        mut enemy,
+        look: at,
+        ..
+    } in entries
+    {
         let (n, prefix) = at.ok_or_else(|| format!(" [{}] has no look", enemy.id))?;
         enemy.look = look(&prefix).map_err(|err| format!("{n}:{err}"))?;
         enemies.push(enemy);
     }
-    Ok(Roster { leader, harvester, enemies })
+    Ok(Roster {
+        leader,
+        harvester,
+        enemies,
+    })
 }
 
 /// One card's kind, from its text: a single `enemies.txt` section whose sprites come from the card's sheet.
@@ -334,11 +426,22 @@ pub struct SpawnMix {
 /// and kinds a player turns off aren't counted.
 pub fn spawn_mix(cards: &[&str], minutes: &[f32]) -> Result<SpawnMix, String> {
     let base = parse(crate::data::enemies()).map_err(|e| format!("enemies.txt:{e}"))?;
-    let entries = cards.iter().map(|t| card_entry(t)).collect::<Result<Vec<_>, _>>()?;
-    let replaced = entries.iter().map(|e| e.enemy.id.clone()).filter(|id| base.index(id).is_some()).collect();
+    let entries = cards
+        .iter()
+        .map(|t| card_entry(t))
+        .collect::<Result<Vec<_>, _>>()?;
+    let replaced = entries
+        .iter()
+        .map(|e| e.enemy.id.clone())
+        .filter(|id| base.index(id).is_some())
+        .collect();
     let r = base.with(&entries);
     Ok(SpawnMix {
-        kinds: r.enemies.iter().map(|e| (e.id.clone(), e.name.clone())).collect(),
+        kinds: r
+            .enemies
+            .iter()
+            .map(|e| (e.id.clone(), e.name.clone()))
+            .collect(),
         replaced,
         shares: minutes.iter().map(|&m| r.shares(m, 0)).collect(),
     })
@@ -361,14 +464,42 @@ pub struct CardFields {
     pub walk: usize,
 }
 
-pub const NUMBERS: [&str; 13] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge", "ranged", "burrow", "rise_bite"];
+pub const NUMBERS: [&str; 13] = [
+    "hp",
+    "speed",
+    "damage",
+    "xp",
+    "mass",
+    "gibs",
+    "after",
+    "chance",
+    "per_minute",
+    "charge",
+    "ranged",
+    "burrow",
+    "rise_bite",
+];
 pub const FLAGS: [&str; 3] = ["heavy", "leader", "harvester"];
 
 /// Reads a card's text as the game would, or says why it can't.
 pub fn card_fields(text: &str) -> Result<CardFields, String> {
     let entry = card_entry(text)?;
     let e = &entry.enemy;
-    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge, e.ranged, e.burrow, e.rise_bite];
+    let numbers = [
+        e.hp,
+        e.speed,
+        e.damage,
+        e.xp as f32,
+        e.mass,
+        e.gibs as f32,
+        e.after,
+        e.chance,
+        e.per_minute,
+        e.charge,
+        e.ranged,
+        e.burrow,
+        e.rise_bite,
+    ];
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),
@@ -376,7 +507,10 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
         numbers: NUMBERS.into_iter().zip(numbers).collect(),
         sound: e.sound.clone(),
         blood: e.blood,
-        flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
+        flags: FLAGS
+            .into_iter()
+            .zip([e.heavy, entry.leader, entry.harvester])
+            .collect(),
         walk: entry.walk,
     })
 }
@@ -384,7 +518,13 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
 /// A card's text with `key` set to `value`, or a flag set when `value` is empty, or the key removed when None.
 /// Other lines, comments among them, stay as they were.
 pub fn set_card_field(text: &str, key: &str, value: Option<&str>) -> String {
-    let line = value.map(|v| if v.is_empty() { key.to_string() } else { format!("{key:<11} {v}") });
+    let line = value.map(|v| {
+        if v.is_empty() {
+            key.to_string()
+        } else {
+            format!("{key:<11} {v}")
+        }
+    });
     let mut out: Vec<String> = Vec::new();
     let mut placed = false;
     for raw in text.lines() {
@@ -424,7 +564,13 @@ pub(super) fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]>
 
 /// Draws each enemy and player card's frames into the free rows of `atlas` and keeps its kind for the roster and
 /// its look for the player; `base` is the enemy file the enemy cards join. Returns a line for each card left out.
-pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
+pub(crate) fn install_cards(
+    cards: &[Card],
+    players: &[Card],
+    props: &[Card],
+    base: &str,
+    atlas: &mut [u8],
+) -> Vec<String> {
     let mut cursor = start();
     let (mut notes, mut rects, mut details, kept) = pack(cards, base, atlas, &mut cursor);
     let packed = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
@@ -432,7 +578,8 @@ pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], ba
     rects.extend(packed.rects);
     details.extend(packed.detail);
     art::set_added_worn(packed.worn);
-    let (more, prop_rects, prop_details, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    let (more, prop_rects, prop_details, named, solids) =
+        super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
     art::set_added_solids(solids);
     notes.extend(more);
     details.extend(prop_details);
@@ -453,9 +600,15 @@ pub(super) fn start() -> [u16; 3] {
 pub(super) fn rows(card: &Card, cols: u32) -> Option<u32> {
     let [fw, fh] = card.frame;
     let row = (fw * cols * fh * 4) as usize;
-    let most = if art::DETAILS.contains(&card.detail) { card_frame_most(card.detail) } else { 0 };
+    let most = if art::DETAILS.contains(&card.detail) {
+        card_frame_most(card.detail)
+    } else {
+        0
+    };
     let fits = (1..=most).contains(&fw) && (1..=most).contains(&fh);
-    [5, 6].into_iter().find(|&rows| fits && card.sheet.len() == row * rows as usize)
+    [5, 6]
+        .into_iter()
+        .find(|&rows| fits && card.sheet.len() == row * rows as usize)
 }
 
 /// Whether a card draws its own dead frames: a sixth row with something in it.
@@ -465,12 +618,20 @@ pub(super) fn has_dead(card: &Card, cols: u32) -> bool {
 
 fn blank(card: &Card, cols: u32, col: u32, row: u32) -> bool {
     let [fw, fh] = card.frame;
-    (0..fh).all(|py| (0..fw).all(|px| card.sheet[(((row * fh + py) * fw * cols + col * fw + px) * 4 + 3) as usize] < 128))
+    (0..fh).all(|py| {
+        (0..fw).all(|px| {
+            card.sheet[(((row * fh + py) * fw * cols + col * fw + px) * 4 + 3) as usize] < 128
+        })
+    })
 }
 
 /// A flash pixel drawn from a standing one: the figure's shape in one pale colour.
 pub fn flash_pixel(p: [u8; 4]) -> [u8; 4] {
-    if p[3] >= 128 { [234, 201, 218, 255] } else { [0; 4] }
+    if p[3] >= 128 {
+        [234, 201, 218, 255]
+    } else {
+        [0; 4]
+    }
 }
 
 /// A hurt pixel drawn from a standing one: the outline stays and the rest goes from dark to bright red by how
@@ -494,10 +655,20 @@ const OUTLINE: u32 = 40;
 /// Copies the cell at `col` and `row` of a sheet `cols` frames wide into the atlas at `at`, with nearly clear
 /// pixels made clear so they don't show as faint squares. A blank flash or hurt cell is drawn from that facing's
 /// first walking frame instead, and a blank dead cell beside drawn ones as the hurt frame.
-pub(super) fn draw_cell(card: &Card, cols: u32, (col, row): (u32, u32), [x, y]: [u16; 2], atlas: &mut [u8]) {
+pub(super) fn draw_cell(
+    card: &Card,
+    cols: u32,
+    (col, row): (u32, u32),
+    [x, y]: [u16; 2],
+    atlas: &mut [u8],
+) {
     let [fw, fh] = card.frame;
-    let at = |col: u32, row: u32, px: u32, py: u32| (((row * fh + py) * fw * cols + col * fw + px) * 4) as usize;
-    let pixel = |col, row, px, py| -> [u8; 4] { card.sheet[at(col, row, px, py)..][..4].try_into().unwrap() };
+    let at = |col: u32, row: u32, px: u32, py: u32| {
+        (((row * fh + py) * fw * cols + col * fw + px) * 4) as usize
+    };
+    let pixel = |col, row, px, py| -> [u8; 4] {
+        card.sheet[at(col, row, px, py)..][..4].try_into().unwrap()
+    };
     let blank = row >= 3 && blank(card, cols, col, row);
     for py in 0..fh {
         for px in 0..fw {
@@ -507,7 +678,11 @@ pub(super) fn draw_cell(card: &Card, cols: u32, (col, row): (u32, u32), [x, y]: 
                 (true, _) => hurt_pixel(pixel(0, col, px, py)),
                 _ => {
                     let p = pixel(col, row, px, py);
-                    if p[3] >= 128 { [p[0], p[1], p[2], 255] } else { [0; 4] }
+                    if p[3] >= 128 {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0; 4]
+                    }
                 }
             };
             atlas[d..d + 4].copy_from_slice(&solid);
@@ -517,9 +692,17 @@ pub(super) fn draw_cell(card: &Card, cols: u32, (col, row): (u32, u32), [x, y]: 
 
 /// The cards' kinds with their sprites drawn into `atlas` from `cursor` on, the rects drawn, and a line for each
 /// card left out.
-fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> (Vec<String>, Vec<[u16; 4]>, Vec<u8>, Vec<Entry>) {
-    let mut ids: Vec<String> = entries(base).map(|es| es.into_iter().map(|e| e.enemy.id).collect()).unwrap_or_default();
-    let (mut notes, mut rects, mut details, mut kept) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+fn pack(
+    cards: &[Card],
+    base: &str,
+    atlas: &mut [u8],
+    cursor: &mut [u16; 3],
+) -> (Vec<String>, Vec<[u16; 4]>, Vec<u8>, Vec<Entry>) {
+    let mut ids: Vec<String> = entries(base)
+        .map(|es| es.into_iter().map(|e| e.enemy.id).collect())
+        .unwrap_or_default();
+    let (mut notes, mut rects, mut details, mut kept) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for card in cards {
         let mut entry = match card_entry(&card.text) {
             Ok(e) => e,
@@ -531,19 +714,30 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
         let [fw, fh] = card.frame;
         let (walk, cols) = (entry.walk, entry.walk.max(3) as u32);
         let Some(rows) = rows(card, cols) else {
-            notes.push(format!("{}: frames are 1 to {MAX_FRAME} game pixels, {cols} across and five or six down", card.name));
+            notes.push(format!(
+                "{}: frames are 1 to {MAX_FRAME} game pixels, {cols} across and five or six down",
+                card.name
+            ));
             continue;
         };
         // Each walking row's frames, then a flash, a hurt and maybe a dead frame per facing, by column and row.
         let rows = if has_dead(card, cols) { rows } else { 5 };
-        let cells: Vec<(u32, u32)> = (0..rows).flat_map(|row| (0..if row < 3 { walk as u32 } else { 3 }).map(move |col| (col, row))).collect();
+        let cells: Vec<(u32, u32)> = (0..rows)
+            .flat_map(|row| (0..if row < 3 { walk as u32 } else { 3 }).map(move |col| (col, row)))
+            .collect();
         let new = !ids.contains(&entry.enemy.id);
         if new && ids.len() >= MAX_KINDS {
-            notes.push(format!("{}: there can be only {MAX_KINDS} kinds", card.name));
+            notes.push(format!(
+                "{}: there can be only {MAX_KINDS} kinds",
+                card.name
+            ));
             continue;
         }
         let mut try_cursor = *cursor;
-        let spots: Option<Vec<[u16; 2]>> = cells.iter().map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect();
+        let spots: Option<Vec<[u16; 2]>> = cells
+            .iter()
+            .map(|_| place(&mut try_cursor, [fw as u16, fh as u16]))
+            .collect();
         let Some(spots) = spots else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
             continue;
@@ -578,27 +772,46 @@ mod tests {
     #[test]
     fn the_shipped_file_parses() {
         let r = roster();
-        assert_eq!(r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["big", "kid", "skinny"]);
+        assert_eq!(
+            r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            ["big", "kid", "skinny"]
+        );
         let big = &r.enemies[r.index("big").unwrap()];
         assert!(big.heavy && r.leader == 0 && r.harvester == 0);
         assert_eq!(big.look.walk[0], art::BIG_FRONT.to_vec());
         assert_eq!(big.sound, "kill-big");
         assert_eq!(r.common(), r.index("skinny").unwrap());
-        assert!(r.enemies.iter().all(|e| !e.about.is_empty()), "every kind says what to expect of it");
+        assert!(
+            r.enemies.iter().all(|e| !e.about.is_empty()),
+            "every kind says what to expect of it"
+        );
     }
 
     #[test]
     fn about_is_a_short_line_of_the_fonts_characters() {
         let f = card_fields("[ghoul]\nabout   Fast, and it never stops.  # comment\n").unwrap();
         assert_eq!(f.about, "Fast, and it never stops.");
-        assert_eq!(card_fields("[ghoul]").unwrap().about, "", "an old card without one still reads");
+        assert_eq!(
+            card_fields("[ghoul]").unwrap().about,
+            "",
+            "an old card without one still reads"
+        );
         let err = |text: &str| card_fields(text).err().expect("an error");
         assert!(err("[a]\nabout").contains("needs a sentence"));
-        assert!(err("[a]\nabout Fast \u{2014} and hungry").contains("plain punctuation"), "the font draws ASCII only");
+        assert!(
+            err("[a]\nabout Fast \u{2014} and hungry").contains("plain punctuation"),
+            "the font draws ASCII only"
+        );
         assert!(err("[a]\nabout tab\there").contains("plain punctuation"));
         let long = format!("[a]\nabout {}", "x".repeat(ABOUT_MAX + 1));
         assert!(err(&long).starts_with("line 2: about is at most"));
-        assert_eq!(card_fields(&format!("[a]\nabout {}", "x".repeat(ABOUT_MAX))).unwrap().about.len(), ABOUT_MAX);
+        assert_eq!(
+            card_fields(&format!("[a]\nabout {}", "x".repeat(ABOUT_MAX)))
+                .unwrap()
+                .about
+                .len(),
+            ABOUT_MAX
+        );
         let text = set_card_field("[a]\nname A\nhp 3\n", "about", Some("Quiet."));
         assert_eq!(card_fields(&text).unwrap().about, "Quiet.");
         assert_eq!(set_card_field(&text, "about", None), "[a]\nname A\nhp 3\n");
@@ -607,13 +820,24 @@ mod tests {
     #[test]
     fn any_about_either_reads_within_its_limits_or_says_why() {
         let mut rng = crate::rng::Rng::new(7);
-        let pool: Vec<char> = (' '..='~').chain(['\u{e9}', '\u{2014}', '\t', '\u{7f}', '\u{1f9df}']).collect();
+        let pool: Vec<char> = (' '..='~')
+            .chain(['\u{e9}', '\u{2014}', '\t', '\u{7f}', '\u{1f9df}'])
+            .collect();
         for _ in 0..2000 {
             let n = rng.below(ABOUT_MAX + 20);
             let text: String = (0..n).map(|_| pool[rng.below(pool.len())]).collect();
-            let reads = [card_fields(&format!("[a]\nabout {text}")).map(|f| f.about), super::super::players::player_fields(&format!("[jo]\nabout {text}")).map(|f| f.about)];
+            let reads = [
+                card_fields(&format!("[a]\nabout {text}")).map(|f| f.about),
+                super::super::players::player_fields(&format!("[jo]\nabout {text}"))
+                    .map(|f| f.about),
+            ];
             for about in reads.into_iter().flatten() {
-                assert!(!about.is_empty() && about.chars().count() <= ABOUT_MAX && about.chars().all(|c| (' '..='~').contains(&c)), "{about:?}");
+                assert!(
+                    !about.is_empty()
+                        && about.chars().count() <= ABOUT_MAX
+                        && about.chars().all(|c| (' '..='~').contains(&c)),
+                    "{about:?}"
+                );
             }
         }
     }
@@ -622,10 +846,18 @@ mod tests {
     fn spawn_rolls_match_the_old_odds() {
         let r = roster();
         let id = |minutes: f32, roll: f32| r.enemies[r.pick(minutes, roll, 0)].id.as_str();
-        assert_eq!(id(0.5, 0.0), "skinny", "nothing but skinnies in the first minute");
+        assert_eq!(
+            id(0.5, 0.0),
+            "skinny",
+            "nothing but skinnies in the first minute"
+        );
         assert_eq!(id(1.5, 0.0), "kid");
         assert_eq!(id(1.5, 0.35), "skinny");
-        assert_eq!(id(5.0, 0.10), "big", "bigs take rolls under 0.06 plus 0.01 a minute after two minutes");
+        assert_eq!(
+            id(5.0, 0.10),
+            "big",
+            "bigs take rolls under 0.06 plus 0.01 a minute after two minutes"
+        );
         assert_eq!(id(5.0, 0.11), "kid");
     }
 
@@ -634,9 +866,21 @@ mod tests {
         let r = roster();
         let bit = |id: &str| 1u64 << r.index(id).unwrap();
         let id = |off: u64, roll: f32| r.enemies[r.pick(5.0, roll, off)].id.as_str();
-        assert_eq!(id(bit("big"), 0.0), "kid", "the roll a big would take goes to the next kind");
-        assert_eq!(id(bit("skinny"), 0.9), "kid", "a roll every chance misses goes to the last kind left on");
-        assert_eq!(id(bit("big") | bit("kid") | bit("skinny"), 0.9), "skinny", "with every kind off, none are skipped");
+        assert_eq!(
+            id(bit("big"), 0.0),
+            "kid",
+            "the roll a big would take goes to the next kind"
+        );
+        assert_eq!(
+            id(bit("skinny"), 0.9),
+            "kid",
+            "a roll every chance misses goes to the last kind left on"
+        );
+        assert_eq!(
+            id(bit("big") | bit("kid") | bit("skinny"), 0.9),
+            "skinny",
+            "with every kind off, none are skipped"
+        );
         assert_eq!(off_from_ids("kid, nope,big"), bit("kid") | bit("big"));
         assert_eq!(off_ids(bit("kid") | bit("big")), "big,kid");
     }
@@ -644,22 +888,52 @@ mod tests {
     /// A card whose sheet is opaque all over.
     fn card(text: &str, frame: [u32; 2]) -> Card {
         let [w, h] = frame;
-        let sheet = (0..w * 3 * h * 5).flat_map(|i| [(i % 251) as u8, 40, 90, 255]).collect();
-        Card { detail: 1, worn: String::new(), name: "test.png".into(), text: text.into(), frame, sheet }
+        let sheet = (0..w * 3 * h * 5)
+            .flat_map(|i| [(i % 251) as u8, 40, 90, 255])
+            .collect();
+        Card {
+            detail: 1,
+            worn: String::new(),
+            name: "test.png".into(),
+            text: text.into(),
+            frame,
+            sheet,
+        }
     }
 
     #[test]
     fn a_card_adds_a_kind_before_the_last_and_draws_its_frames() {
         let base = include_str!("../../enemies.txt");
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let (notes, rects, _, kept) = pack(&[card("[ghoul]\nname Ghoul\nhp 40\nleader", [12, 20])], base, &mut atlas, &mut start());
+        let (notes, rects, _, kept) = pack(
+            &[card("[ghoul]\nname Ghoul\nhp 40\nleader", [12, 20])],
+            base,
+            &mut atlas,
+            &mut start(),
+        );
         assert!(notes.is_empty(), "{notes:?}");
-        assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
-        assert!(rects.iter().all(|r| r[1] > art::free_top() && r[2..] == [12, 20]), "below the packed sprites");
+        assert_eq!(
+            rects.len(),
+            15,
+            "three walking frames a facing, then a flash and a hurt frame each"
+        );
+        assert!(
+            rects
+                .iter()
+                .all(|r| r[1] > art::free_top() && r[2..] == [12, 20]),
+            "below the packed sprites"
+        );
         let [x, y, ..] = rects[0].map(u32::from);
-        assert_eq!(atlas[((y * ATLAS_W + x) * 4 + 3) as usize], 255, "its pixels are drawn in");
+        assert_eq!(
+            atlas[((y * ATLAS_W + x) * 4 + 3) as usize],
+            255,
+            "its pixels are drawn in"
+        );
         let r = parse(base).unwrap().with(&kept);
-        assert_eq!(r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["big", "kid", "ghoul", "skinny"]);
+        assert_eq!(
+            r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            ["big", "kid", "ghoul", "skinny"]
+        );
         assert_eq!(r.enemies[2].hp, 40.0);
         assert!(r.enemies[2].from_card && !r.enemies[0].from_card);
         assert_eq!(r.enemies[2].look.walk[0][0], Art(art::RECTS.len() as u16));
@@ -681,9 +955,17 @@ mod tests {
             let i = (((r[1] as u32) * ATLAS_W + r[0] as u32 + dx) * 4) as usize;
             <[u8; 4]>::try_from(&atlas[i..i + 4]).unwrap()
         };
-        assert_eq!(px(rects[9], 0), flash_pixel([0, 0, 0, 255]), "flash is the shape in one colour");
+        assert_eq!(
+            px(rects[9], 0),
+            flash_pixel([0, 0, 0, 255]),
+            "flash is the shape in one colour"
+        );
         assert_eq!(px(rects[12], 0), [0, 0, 0, 255], "hurt keeps the outline");
-        assert_eq!(px(rects[12], 1), [194, 71, 35, 255], "and turns white the built-ins' brightest red");
+        assert_eq!(
+            px(rects[12], 1),
+            [194, 71, 35, 255],
+            "and turns white the built-ins' brightest red"
+        );
     }
 
     #[test]
@@ -695,11 +977,18 @@ mod tests {
         let (notes, rects, _, kept) = pack(&[c], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 18);
-        assert_eq!(kept[0].enemy.look.dead.map(|d| d[0]), Some(Art((art::RECTS.len() + 15) as u16)));
+        assert_eq!(
+            kept[0].enemy.look.dead.map(|d| d[0]),
+            Some(Art((art::RECTS.len() + 15) as u16))
+        );
         let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
         c.sheet.extend(std::iter::repeat_n(0, 3 * 4 * 4 * 4));
         let (_, rects, _, kept) = pack(&[c], base, &mut atlas, &mut start());
-        assert_eq!((rects.len(), kept[0].enemy.look.dead), (15, None), "a blank dead row tips the hurt frame as before");
+        assert_eq!(
+            (rects.len(), kept[0].enemy.look.dead),
+            (15, None),
+            "a blank dead row tips the hurt frame as before"
+        );
     }
 
     #[test]
@@ -720,14 +1009,28 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let [w, h] = [8u32, 8];
         let sheet = vec![255u8; (w * 5 * h * 5 * 4) as usize];
-        let card = Card { detail: 1, worn: String::new(), name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
+        let card = Card {
+            detail: 1,
+            worn: String::new(),
+            name: "long.enemy.png".into(),
+            text: "[long]\nwalk 5".into(),
+            frame: [w, h],
+            sheet,
+        };
         let (notes, rects, _, kept) = pack(&[card], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 5 * 3 + 6);
         let look = &kept[0].enemy.look;
         assert!(look.walk.iter().all(|w| w.len() == 5));
-        assert_eq!(look.flash[0], Art((art::RECTS.len() + 15) as u16), "the stills follow the walking frames");
-        assert!(parse(&format!("{base}\n[x]\nlook SKINNY\nwalk 9")).is_err(), "a walk is at most {MAX_WALK}");
+        assert_eq!(
+            look.flash[0],
+            Art((art::RECTS.len() + 15) as u16),
+            "the stills follow the walking frames"
+        );
+        assert!(
+            parse(&format!("{base}\n[x]\nlook SKINNY\nwalk 9")).is_err(),
+            "a walk is at most {MAX_WALK}"
+        );
     }
 
     #[test]
@@ -743,10 +1046,18 @@ mod tests {
     fn a_card_with_a_known_id_replaces_that_kind() {
         let base = include_str!("../../enemies.txt");
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let (_, _, _, kept) = pack(&[card("[kid]\nname Imp\nspeed 50", [16, 16])], base, &mut atlas, &mut start());
+        let (_, _, _, kept) = pack(
+            &[card("[kid]\nname Imp\nspeed 50", [16, 16])],
+            base,
+            &mut atlas,
+            &mut start(),
+        );
         let r = parse(base).unwrap().with(&kept);
         assert_eq!(r.enemies.len(), 3);
-        assert_eq!((r.enemies[1].name.as_str(), r.enemies[1].speed), ("Imp", 50.0));
+        assert_eq!(
+            (r.enemies[1].name.as_str(), r.enemies[1].speed),
+            ("Imp", 50.0)
+        );
     }
 
     #[test]
@@ -755,60 +1066,133 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let mut short = card("[a]", [16, 16]);
         short.sheet.truncate(100);
-        let cards = [card("[a]\nlook SKINNY", [16, 16]), card("[a]\n[b]", [16, 16]), card("[a]\nwings 2", [16, 16]), short, card("[a]", [64, 64])];
+        let cards = [
+            card("[a]\nlook SKINNY", [16, 16]),
+            card("[a]\n[b]", [16, 16]),
+            card("[a]\nwings 2", [16, 16]),
+            short,
+            card("[a]", [64, 64]),
+        ];
         let (notes, rects, _, kept) = pack(&cards, base, &mut atlas, &mut start());
         assert_eq!(kept.len(), 1, "{notes:?}");
-        assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
-        for (note, why) in notes.iter().zip(["no look", "one enemy", "wings", "3 across"]) {
-            assert!(note.starts_with("test.png: ") && note.contains(why), "{note}");
+        assert_eq!(
+            rects.len(),
+            15,
+            "three walking frames a facing, then a flash and a hurt frame each"
+        );
+        for (note, why) in notes
+            .iter()
+            .zip(["no look", "one enemy", "wings", "3 across"])
+        {
+            assert!(
+                note.starts_with("test.png: ") && note.contains(why),
+                "{note}"
+            );
         }
-        let many: Vec<Card> = (0..40).map(|i| card(&format!("[c{i}]"), [64, 64])).collect();
+        let many: Vec<Card> = (0..40)
+            .map(|i| card(&format!("[c{i}]"), [64, 64]))
+            .collect();
         let (notes, ..) = pack(&many, base, &mut atlas, &mut start());
-        assert!(notes.last().unwrap().contains("no room"), "a full texture turns cards away");
+        assert!(
+            notes.last().unwrap().contains("no room"),
+            "a full texture turns cards away"
+        );
     }
 
     #[test]
     fn a_card_reads_with_defaults_and_rewrites_one_setting_at_a_time() {
         let text = "# my ghoul\n[ghoul]\nname Ghoul\nhp 40\nheavy\n";
         let f = card_fields(text).unwrap();
-        assert_eq!((f.id.as_str(), f.name.as_str(), f.sound.as_str()), ("ghoul", "Ghoul", "kill-ghoul"));
+        assert_eq!(
+            (f.id.as_str(), f.name.as_str(), f.sound.as_str()),
+            ("ghoul", "Ghoul", "kill-ghoul")
+        );
         assert_eq!(f.numbers[0], ("hp", 40.0));
-        assert_eq!(f.numbers[1], ("speed", 20.0), "unset numbers read as the game's defaults");
+        assert_eq!(
+            f.numbers[1],
+            ("speed", 20.0),
+            "unset numbers read as the game's defaults"
+        );
         assert_eq!(f.flags[0], ("heavy", true));
         let text = set_card_field(text, "hp", Some("55"));
         let text = set_card_field(&text, "speed", Some("30"));
         let text = set_card_field(&text, "heavy", None);
         let text = set_card_field(&text, "leader", Some(""));
-        assert_eq!(text, "# my ghoul\n[ghoul]\nname Ghoul\nhp          55\nspeed       30\nleader\n");
+        assert_eq!(
+            text,
+            "# my ghoul\n[ghoul]\nname Ghoul\nhp          55\nspeed       30\nleader\n"
+        );
         let f = card_fields(&text).unwrap();
-        assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1, f.flags[1].1), (55.0, 30.0, false, true));
+        assert_eq!(
+            (f.numbers[0].1, f.numbers[1].1, f.flags[0].1, f.flags[1].1),
+            (55.0, 30.0, false, true)
+        );
         assert!(card_fields("[a]\nlook SKINNY").is_err());
     }
 
     #[test]
     fn ranged_and_burrow_read_bounded_and_default_off() {
         let f = card_fields("[spitter]\nranged 80\nburrow 4\n").unwrap();
-        assert_eq!((f.numbers[10], f.numbers[11]), (("ranged", 80.0), ("burrow", 4.0)));
+        assert_eq!(
+            (f.numbers[10], f.numbers[11]),
+            (("ranged", 80.0), ("burrow", 4.0))
+        );
         let f = card_fields("[spitter]\nranged 9999\nburrow 1e9\n").unwrap();
-        assert_eq!((f.numbers[10].1, f.numbers[11].1), (RANGED_MAX, BURROW_MAX), "untrusted cards are held to the limits");
+        assert_eq!(
+            (f.numbers[10].1, f.numbers[11].1),
+            (RANGED_MAX, BURROW_MAX),
+            "untrusted cards are held to the limits"
+        );
         assert!(card_fields("[spitter]\nranged -1").is_err());
         assert!(card_fields("[spitter]\nburrow NaN").is_err());
-        assert!(roster().enemies.iter().all(|e| e.ranged == 0.0 && e.burrow == 0.0), "the game's own kinds bite and walk");
+        assert!(
+            roster()
+                .enemies
+                .iter()
+                .all(|e| e.ranged == 0.0 && e.burrow == 0.0),
+            "the game's own kinds bite and walk"
+        );
         let text = set_card_field("[spitter]\n", "ranged", Some("60"));
         assert_eq!(text, "[spitter]\nranged      60\n");
     }
 
     #[test]
     fn a_card_bleeds_its_own_color_and_old_cards_the_games() {
-        assert_eq!(card_fields("[ghost]\n").unwrap().blood, None, "a card without one bleeds effects.txt's");
-        assert_eq!(card_fields("[ghost]\nblood E0e0D8\n").unwrap().blood, Some([0xE0, 0xE0, 0xD8]));
-        for bad in ["blood", "blood 7AA06", "blood 7AA0622", "blood GGGGGG", "blood 0.5 0.5 0.5"] {
-            assert!(card_fields(&format!("[ghost]\n{bad}")).err().is_some_and(|e| e.contains("RRGGBB")), "{bad}");
+        assert_eq!(
+            card_fields("[ghost]\n").unwrap().blood,
+            None,
+            "a card without one bleeds effects.txt's"
+        );
+        assert_eq!(
+            card_fields("[ghost]\nblood E0e0D8\n").unwrap().blood,
+            Some([0xE0, 0xE0, 0xD8])
+        );
+        for bad in [
+            "blood",
+            "blood 7AA06",
+            "blood 7AA0622",
+            "blood GGGGGG",
+            "blood 0.5 0.5 0.5",
+        ] {
+            assert!(
+                card_fields(&format!("[ghost]\n{bad}"))
+                    .err()
+                    .is_some_and(|e| e.contains("RRGGBB")),
+                "{bad}"
+            );
         }
-        assert!(roster().enemies.iter().all(|e| e.blood.is_none()), "the game's own kinds bleed effects.txt's");
+        assert!(
+            roster().enemies.iter().all(|e| e.blood.is_none()),
+            "the game's own kinds bleed effects.txt's"
+        );
         let text = set_card_field("[slime]\n", "blood", Some("7AA062"));
         assert_eq!(text, "[slime]\nblood       7AA062\n");
-        assert_eq!(card_fields(&set_card_field(&text, "blood", None)).unwrap().blood, None);
+        assert_eq!(
+            card_fields(&set_card_field(&text, "blood", None))
+                .unwrap()
+                .blood,
+            None
+        );
     }
 
     #[test]
@@ -816,9 +1200,15 @@ mod tests {
         let r = roster();
         let at = |m: f32| r.shares(m, 0);
         let close = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
-        assert!(close(&at(0.5), &[0.0, 0.0, 1.0]), "only skinnies in the first minute");
+        assert!(
+            close(&at(0.5), &[0.0, 0.0, 1.0]),
+            "only skinnies in the first minute"
+        );
         assert!(close(&at(1.5), &[0.0, 0.35, 0.65]));
-        assert!(close(&at(5.0), &[0.11, 0.24, 0.65]), "bigs take 0.06 + 0.01 a minute out of the kids' share");
+        assert!(
+            close(&at(5.0), &[0.11, 0.24, 0.65]),
+            "bigs take 0.06 + 0.01 a minute out of the kids' share"
+        );
         for m in [0.0, 3.0, 9.9] {
             assert!((at(m).iter().sum::<f32>() - 1.0).abs() < 1e-5);
         }
@@ -835,7 +1225,10 @@ mod tests {
                     counted[r.pick(minutes, (k as f32 + 0.5) / 1000.0, off)] += 0.001;
                 }
                 for (s, c) in shares.iter().zip(&counted) {
-                    assert!((s - c).abs() < 0.002, "off {off:b} at {minutes}: {shares:?} vs {counted:?}");
+                    assert!(
+                        (s - c).abs() < 0.002,
+                        "off {off:b} at {minutes}: {shares:?} vs {counted:?}"
+                    );
                 }
             }
         }
@@ -850,7 +1243,10 @@ mod tests {
         assert!(mix.replaced.is_empty());
         let mix = spawn_mix(&["[kid]\nchance 0.1"], &[5.0]).unwrap();
         assert_eq!(mix.replaced, ["kid"]);
-        assert!((mix.shares[0][1] - 0.0).abs() < 1e-5, "a kid below the bigs' chance is crowded out");
+        assert!(
+            (mix.shares[0][1] - 0.0).abs() < 1e-5,
+            "a kid below the bigs' chance is crowded out"
+        );
         assert!(spawn_mix(&["[a]\nwings 2"], &[0.0]).is_err());
     }
 
@@ -859,7 +1255,10 @@ mod tests {
         let err = |text: &str| parse(text).err().expect("an error");
         assert!(err("hp 3").starts_with("1:"));
         assert!(err("[a]\nlook SKINNY\nhp lots").starts_with("3:"));
-        assert!(err("[a]\nlook SKINNY\nspeed inf").starts_with("3: speed"), "a number must be finite");
+        assert!(
+            err("[a]\nlook SKINNY\nspeed inf").starts_with("3: speed"),
+            "a number must be finite"
+        );
         assert!(err("[a]\nlook NOPE").contains("NOPE"));
         assert!(err("[a]\nhp 3").contains("no look"));
         assert!(err("[a]\nlook SKINNY\n[a]").contains("twice"));

@@ -4,63 +4,82 @@
 
 pub mod alpha;
 pub mod art;
+mod controls;
 pub mod data;
-pub mod paint;
 mod difficulty;
 mod draw;
 pub mod fmath;
 mod font;
 mod gallery;
 mod hardware;
-mod icon;
 mod harvest;
+mod icon;
 mod input;
+mod keys;
 mod menu;
 pub mod netplay;
-pub mod netsync;
-mod online_menu;
 #[cfg(test)]
 mod netplay_tests;
+pub mod netsync;
+mod online_menu;
 mod osd;
-mod controls;
 pub mod pad;
+pub mod paint;
 pub mod photo;
 mod rng;
-mod keys;
 mod save;
 pub mod scene3d;
 mod setup;
 mod sfx;
 mod system;
-mod watch;
 pub mod touch;
 pub mod tuning;
+mod watch;
 pub mod worn;
 
+pub use art::Stand;
+pub use controls::Controls;
 pub use difficulty::{Difficulty, Tier};
 pub use draw::{Align, Canvas, Color, Frame, Shape};
-pub use art::Stand;
-pub use harvest::showcase::{CropShow, Figure, Showcase};
-pub use harvest::{SwingShow, swing_shown};
-pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
-pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
 pub use harvest::online;
 pub use harvest::replay;
-pub use harvest::{DEFAULT_SOUND_DELAY, WeaponLevels, sound_group, sound_groups, valid_sound_group, powerup_zones, unlock_conditions, weapon_behaviours, weapon_aims, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
+pub use harvest::showcase::{CropShow, Figure, Showcase};
+pub use harvest::{
+    ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, CARD_NUMBERS, CardFields, MAX_WALK, PLAYER_BASE_KEYS,
+    PLAYER_ID_MAX, PlayerFields, PlayerLook, SpawnMix, card_fields, card_frame_most, check_tables,
+    default_start, flash_pixel, frame_limits, hurt_pixel, kill_sound, kill_sounds, kill_weight,
+    night_minutes, player_fields, player_looks, player_powerups, set_card_field, set_player_farm,
+    set_player_start, spawn_mix, use_player_farm, weapon_slots, weapons,
+};
+pub use harvest::{
+    CropSway, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, MAP_EXTENSION, MAP_MAX, MAP_MIN, MapSource,
+    PROP_MAX_HP, PropKind, PropLine, PropTough, TABLES, built_in_table, check_map,
+    check_map_on_any_farm, check_own_table, check_table, default_prop_depth, farm_file, farm_ids,
+    farm_of_file, map_ground, map_props, parse_props, set_farm, set_map_ground, table_kind,
+    use_farm, use_farm_text, valid_farm_id, valid_map_id,
+};
+pub use harvest::{
+    DEFAULT_SOUND_DELAY, WeaponLevels, powerup_zones, sound_group, sound_groups, unlock_conditions,
+    valid_sound_group, weapon_aims, weapon_behaviours, weapon_levels, weapon_patterns,
+    weapon_sound_names, weapon_stats, weapon_targets,
+};
+pub use harvest::{
+    NamedProp, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields,
+    load_props_for_checks, named_props, prop_fields, prop_text, set_props, turned_depth,
+};
+pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
-pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, check_map_on_any_farm, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, set_farm, table_kind, use_farm, use_farm_text, valid_farm_id};
-pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_farm, set_player_start, use_player_farm, player_powerups, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::{SwingShow, swing_shown};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
-pub use pad::PadFamily;
-pub use controls::Controls;
 pub use keys::key_button;
+pub use pad::PadFamily;
 pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
 use crate::fmath as fm;
-use rng::Rng;
 use menu::Page;
+use rng::Rng;
 use save::LEVELS;
 
 pub const SCREEN_W: f32 = 1024.0;
@@ -341,7 +360,11 @@ impl Game {
             return None;
         }
         self.shot_flash = SHOT_FLASH;
-        Some(if self.in_photo() { Capture::Photo } else { Capture::Screens })
+        Some(if self.in_photo() {
+            Capture::Photo
+        } else {
+            Capture::Screens
+        })
     }
 
     /// The platform saves what `take_screenshot` asks for, so photo mode offers to take photos.
@@ -417,7 +440,18 @@ impl Game {
     /// What `d`'s nights have unlocked.
     fn progress_at(&self, d: Difficulty) -> harvest::Progress {
         let s = self.save.records(d);
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(self.save.player.as_str()) }
+        harvest::Progress {
+            kills: s.kills,
+            best: s.best,
+            best_level: s.best_level,
+            nights: s.nights,
+            dawns: s.dawns,
+            breakers: s.breakers,
+            breaker_dawns: s.breaker_dawns,
+            found: s.found,
+            everything: self.unlock_all,
+            hidden: harvest::hidden_powerups(self.save.player.as_str()),
+        }
     }
 
     /// One line describing the current scene, for logs.
@@ -425,7 +459,12 @@ impl Game {
         match &self.state {
             State::Title => "title".into(),
             State::Harvest(h) => match self.net_traffic() {
-                Some(t) if t.secs > 0.0 => format!("{} net down={:.0}B/s up={:.0}B/s", h.summary(), t.down as f32 / t.secs, t.up as f32 / t.secs),
+                Some(t) if t.secs > 0.0 => format!(
+                    "{} net down={:.0}B/s up={:.0}B/s",
+                    h.summary(),
+                    t.down as f32 / t.secs,
+                    t.up as f32 / t.secs
+                ),
                 _ => h.summary(),
             },
             State::Gallery(_) => "art".into(),
@@ -500,7 +539,23 @@ impl Game {
             Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
                 let player = self.save.player.as_str().to_string();
-                let setup = replay::Setup { map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty, progress: self.progress(), enemies_off: self.save.enemies_off, look: player.clone(), seats: self.seat_cards(self.players).split_off(1), farm: Some(player), kit: self.kit.clone(), start_t: self.start_t, one_screen: self.one_screen(), endless: self.endless, players: self.players, bots: self.bots, views: self.players.max(self.split), ..replay::Setup::night(seed) };
+                let setup = replay::Setup {
+                    map: self.save.map.as_str().to_string(),
+                    difficulty: self.save.difficulty,
+                    progress: self.progress(),
+                    enemies_off: self.save.enemies_off,
+                    look: player.clone(),
+                    seats: self.seat_cards(self.players).split_off(1),
+                    farm: Some(player),
+                    kit: self.kit.clone(),
+                    start_t: self.start_t,
+                    one_screen: self.one_screen(),
+                    endless: self.endless,
+                    players: self.players,
+                    bots: self.bots,
+                    views: self.players.max(self.split),
+                    ..replay::Setup::night(seed)
+                };
                 let mut h = setup.build();
                 if let Some(info) = &self.replay_info {
                     h.record(info.clone());
@@ -510,7 +565,9 @@ impl Game {
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::BenchCorn(size) => State::Harvest(Box::new(harvest::Harvest::bench_corn(size))),
-            Scene::Range => State::Harvest(Box::new(harvest::Harvest::range(seed, &self.range).single_screen(self.one_screen()))),
+            Scene::Range => State::Harvest(Box::new(
+                harvest::Harvest::range(seed, &self.range).single_screen(self.one_screen()),
+            )),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
             Scene::Icon => State::Icon(Box::default()),
@@ -573,7 +630,9 @@ impl Game {
 
     /// Runs a step with each seated player's input, player 1's first.
     pub fn update_all(&mut self, inputs: &[Input], dt: f32) {
-        let Some((first, others)) = inputs.split_first() else { return };
+        let Some((first, others)) = inputs.split_first() else {
+            return;
+        };
         self.others = others.to_vec();
         self.update(first, dt);
     }
@@ -602,13 +661,20 @@ impl Game {
 
     /// The replays the platform keeps, newest first, as file names and bytes after any gzip.
     pub fn set_saved_replays(&mut self, saved: Vec<(String, Vec<u8>)>) {
-        self.saved_replays = saved.into_iter().map(|(name, raw)| watch::Saved::new(name, raw)).collect();
-        self.replay_row = self.replay_row.min(self.saved_replays.len().saturating_sub(1));
+        self.saved_replays = saved
+            .into_iter()
+            .map(|(name, raw)| watch::Saved::new(name, raw))
+            .collect();
+        self.replay_row = self
+            .replay_row
+            .min(self.saved_replays.len().saturating_sub(1));
     }
 
     /// Plays saved replay `i` on the run's screens; one that won't read stays on the list with why.
     pub(crate) fn watch_replay(&mut self, i: usize) {
-        let Some(opened) = self.saved_replays.get(i).map(watch::Saved::open) else { return };
+        let Some(opened) = self.saved_replays.get(i).map(watch::Saved::open) else {
+            return;
+        };
         match opened {
             Ok((r, warn)) => {
                 self.keep_replays();
@@ -646,7 +712,10 @@ impl Game {
 
     /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
     pub(crate) fn title_on_one(&self) -> bool {
-        self.phone.is_some() && !self.has_touch() && matches!(self.state, State::Title) && self.page == Page::Main
+        self.phone.is_some()
+            && !self.has_touch()
+            && matches!(self.state, State::Title)
+            && self.page == Page::Main
     }
 
     /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2, whatever Settings says.
@@ -676,18 +745,31 @@ impl Game {
             let photo = self.in_photo() && self.has_touch();
             return touch::layout(size, true, photo, photo);
         }
-        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch(), self.in_photo())
+        touch::layout(
+            size,
+            matches!(self.state, State::Harvest(_)) || self.title_on_one(),
+            self.has_touch(),
+            self.in_photo(),
+        )
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
     fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
-        self.pad_seen |= input.held != Buttons::NONE || input.pressed != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
-        if self.save.touch == TouchControls::Off && !self.pad_seen && self.touch_screen() && input.touches.iter().any(Option::is_some) {
+        self.pad_seen |= input.held != Buttons::NONE
+            || input.pressed != Buttons::NONE
+            || input.stick != [0.0; 2]
+            || input.look != 0.0;
+        if self.save.touch == TouchControls::Off
+            && !self.pad_seen
+            && self.touch_screen()
+            && input.touches.iter().any(Option::is_some)
+        {
             self.save.touch = TouchControls::Auto;
         }
         let layout = self.phone_layout(size);
         let hides = self.save.touch.hide_at_other_input();
-        let other = hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
+        let other =
+            hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
         self.touchpad.hidden &= hides;
         let mut pad = self.touchpad.update(&input.touches, &layout, other);
         // The Grenade key is R1, which rerolls the level-up cards; there only the Reroll key rerolls.
@@ -697,11 +779,34 @@ impl Game {
         }
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
-        let touch = if self.title_on_one() { pad.touch.and_then(title_menu_touch) } else { pad.touch };
-        let hover = input.hover.and_then(|p| touch::screen_point(&layout, p)).and_then(|p| if self.title_on_one() { title_menu_touch(p) } else { Some(p) });
+        let touch = if self.title_on_one() {
+            pad.touch.and_then(title_menu_touch)
+        } else {
+            pad.touch
+        };
+        let hover = input
+            .hover
+            .and_then(|p| touch::screen_point(&layout, p))
+            .and_then(|p| {
+                if self.title_on_one() {
+                    title_menu_touch(p)
+                } else {
+                    Some(p)
+                }
+            });
         let mut touches = [None; MAX_TOUCHES];
         touches[0] = touch;
-        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch, touches, touch_started: pad.touch_started && touch.is_some(), hover, ..*input }
+        Input {
+            held: input.held | pad.held,
+            pressed: input.pressed | pad.pressed,
+            stick,
+            look,
+            touch,
+            touches,
+            touch_started: pad.touch_started && touch.is_some(),
+            hover,
+            ..*input
+        }
     }
 
     /// Keeps the pointer's spot only on frames it moved, and turns wheel steps into Up and Down while a menu, the
@@ -713,20 +818,31 @@ impl Game {
         if self.menu_up() {
             self.wheel += input.wheel;
             if self.wheel.abs() >= 1.0 {
-                pressed |= if self.wheel > 0.0 { Buttons::UP } else { Buttons::DOWN };
+                pressed |= if self.wheel > 0.0 {
+                    Buttons::UP
+                } else {
+                    Buttons::DOWN
+                };
                 self.wheel -= self.wheel.signum();
             }
         } else {
             self.wheel = 0.0;
         }
-        Input { pressed, hover, wheel: 0.0, ..*input }
+        Input {
+            pressed,
+            hover,
+            wheel: 0.0,
+            ..*input
+        }
     }
 
     /// A menu, the level-up cards or photo mode is up, where the wheel steps through rows.
     fn menu_up(&self) -> bool {
         match &self.state {
             State::Title => true,
-            State::Harvest(h) => self.page == Page::Settings || h.menu_open() || h.choosing() || h.in_photo(),
+            State::Harvest(h) => {
+                self.page == Page::Settings || h.menu_open() || h.choosing() || h.in_photo()
+            }
             _ => false,
         }
     }
@@ -738,12 +854,18 @@ impl Game {
 
     /// Whether the pads of the player in `seat`, from 0, should be buzzing this frame, as Settings allows.
     pub fn rumble_for(&self, seat: usize) -> bool {
-        let on = if seat == 0 { self.rumble() } else { self.pulsing(seat) };
+        let on = if seat == 0 {
+            self.rumble()
+        } else {
+            self.pulsing(seat)
+        };
         on && (self.save.rumble || matches!(self.state, State::Hardware(_)))
     }
 
     fn pulsing(&self, seat: usize) -> bool {
-        self.pulses.get(seat).is_some_and(|p| p.iter().any(|&(a, b)| (a..b).contains(&self.clock)))
+        self.pulses
+            .get(seat)
+            .is_some_and(|p| p.iter().any(|&(a, b)| (a..b).contains(&self.clock)))
     }
 
     fn buzz(&mut self, seat: usize, r: harvest::Rumble) {
@@ -773,7 +895,10 @@ impl Game {
                 _ => 0.0,
             },
             brightness: self.save.brightness.map(level),
-            screens_on: [!self.paused, !self.paused && !matches!(&self.state, State::Harvest(h) if h.one_screen())],
+            screens_on: [
+                !self.paused,
+                !self.paused && !matches!(&self.state, State::Harvest(h) if h.one_screen()),
+            ],
             work_led: self.leds[0],
             low_led: self.leds[1],
         }
@@ -790,13 +915,20 @@ impl Game {
 
     /// The run wants the pointer captured for mouse-look: play is on, with no menu, pause, cards or settings over it.
     pub fn mouse_look(&self) -> bool {
-        !self.paused && self.page != Page::Settings && matches!(&self.state, State::Harvest(h) if h.mouse_looking() && !h.choosing())
+        !self.paused
+            && self.page != Page::Settings
+            && matches!(&self.state, State::Harvest(h) if h.mouse_looking() && !h.choosing())
     }
 
     /// Radians of turn per unit of mouse movement, at the Mouse speed setting.
     pub fn mouse_turn(&self) -> f32 {
         let steps = self.save.mouse as i32 - save::MOUSE_DEFAULT as i32;
-        MOUSE_TURN * std::iter::repeat_n(if steps < 0 { 0.8 } else { 1.25 }, steps.unsigned_abs() as usize).product::<f32>()
+        MOUSE_TURN
+            * std::iter::repeat_n(
+                if steps < 0 { 0.8 } else { 1.25 },
+                steps.unsigned_abs() as usize,
+            )
+            .product::<f32>()
     }
 
     /// Master volume in 0..=1, set with the volume keys.
@@ -810,8 +942,16 @@ impl Game {
         }
         pad::set_controls(self.save.controls);
         self.raw_pressed = input.pressed;
-        let controls = if matches!(self.state, State::Hardware(_)) { Controls::default() } else { self.save.controls };
-        let mapped = Input { held: controls.apply(input.held), pressed: controls.apply(input.pressed), ..*input };
+        let controls = if matches!(self.state, State::Hardware(_)) {
+            Controls::default()
+        } else {
+            self.save.controls
+        };
+        let mapped = Input {
+            held: controls.apply(input.held),
+            pressed: controls.apply(input.pressed),
+            ..*input
+        };
         let input = &mapped;
         let rebinding = self.rebind.as_mut().map(|r| {
             r.tick(dt);
@@ -836,7 +976,8 @@ impl Game {
             p.retain(|&(_, end)| end > now);
         }
         self.volume_shown = (self.volume_shown - dt).max(0.0);
-        let step = input.pressed.contains(Buttons::VOL_UP) as i8 - input.pressed.contains(Buttons::VOL_DOWN) as i8;
+        let step = input.pressed.contains(Buttons::VOL_UP) as i8
+            - input.pressed.contains(Buttons::VOL_DOWN) as i8;
         if step != 0 {
             self.save.volume = self.save.volume.saturating_add_signed(step).min(LEVELS);
             self.volume_shown = VOLUME_SHOWN;
@@ -844,12 +985,24 @@ impl Game {
         }
         self.shot_flash = (self.shot_flash - dt).max(0.0);
         // The icon scene keeps R2 for its barricade, so its screenshot stays on R1.
-        let shot_key = if matches!(self.state, State::Icon(_)) { Buttons::R1 } else { Buttons::R2 };
-        if input.pressed.contains(shot_key) && self.captures && !matches!(self.state, State::Hardware(_)) && !self.in_photo() && !rebinding {
+        let shot_key = if matches!(self.state, State::Icon(_)) {
+            Buttons::R1
+        } else {
+            Buttons::R2
+        };
+        if input.pressed.contains(shot_key)
+            && self.captures
+            && !matches!(self.state, State::Hardware(_))
+            && !self.in_photo()
+            && !rebinding
+        {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
         }
-        if input.pressed.contains(Buttons::SELECT) && !matches!(self.state, State::Hardware(_)) && !rebinding {
+        if input.pressed.contains(Buttons::SELECT)
+            && !matches!(self.state, State::Hardware(_))
+            && !rebinding
+        {
             self.save.fps = !self.save.fps;
         }
         if self.paused {
@@ -871,9 +1024,17 @@ impl Game {
                 return;
             }
             State::Harvest(mut h) if self.page == Page::Settings => {
-                let owner = h.menu_player().checked_sub(1).and_then(|o| self.others.get(o)).filter(|_| h.views() > 1);
+                let owner = h
+                    .menu_player()
+                    .checked_sub(1)
+                    .and_then(|o| self.others.get(o))
+                    .filter(|_| h.views() > 1);
                 let controls = self.save.controls;
-                let theirs = owner.map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i });
+                let theirs = owner.map(|i| Input {
+                    held: controls.apply(i.held),
+                    pressed: controls.apply(i.pressed),
+                    ..*i
+                });
                 let input = theirs.as_ref().unwrap_or(input);
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
@@ -893,7 +1054,15 @@ impl Game {
                 h.set_saves_photos(self.captures);
                 h.set_taps(self.phone.is_none() || self.touch_screen());
                 let controls = self.save.controls;
-                let others: Vec<Input> = self.others.iter().map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i }).collect();
+                let others: Vec<Input> = self
+                    .others
+                    .iter()
+                    .map(|i| Input {
+                        held: controls.apply(i.held),
+                        pressed: controls.apply(i.pressed),
+                        ..*i
+                    })
+                    .collect();
                 h.set_inputs(&others);
                 let flow = match self.step_online(&mut h, input, &others, dt) {
                     Some(flow) => flow,
@@ -920,7 +1089,23 @@ impl Game {
                 if let Some(run) = flow.ended {
                     let p = self.progress_at(run.difficulty).after(run);
                     if let Some(r) = self.save.records_mut(run.difficulty) {
-                        (r.kills, r.best, r.best_level, r.nights, r.dawns, r.breakers, r.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
+                        (
+                            r.kills,
+                            r.best,
+                            r.best_level,
+                            r.nights,
+                            r.dawns,
+                            r.breakers,
+                            r.breaker_dawns,
+                        ) = (
+                            p.kills,
+                            p.best,
+                            p.best_level,
+                            p.nights,
+                            p.dawns,
+                            p.breakers,
+                            p.breaker_dawns,
+                        );
                     }
                     self.save.record(run);
                 }
@@ -942,8 +1127,19 @@ impl Game {
             State::Watch(mut w) => {
                 let top = self.watch_strip_top().unwrap_or(0.0);
                 let touch_keys = self.phone.is_some() && self.has_touch() && !self.touchpad.hidden;
-                w.set_device(replay::Device { one_screen: self.one_screen(), touch_keys, saves_photos: self.captures, taps: self.phone.is_none() || self.touch_screen() });
-                let going = w.update(input, input.touch.filter(|_| input.touch_started), top, dt, &mut self.sounds);
+                w.set_device(replay::Device {
+                    one_screen: self.one_screen(),
+                    touch_keys,
+                    saves_photos: self.captures,
+                    taps: self.phone.is_none() || self.touch_screen(),
+                });
+                let going = w.update(
+                    input,
+                    input.touch.filter(|_| input.touch_started),
+                    top,
+                    dt,
+                    &mut self.sounds,
+                );
                 let capture = w.take_capture();
                 if capture && self.captures {
                     self.shot = true;
@@ -978,7 +1174,10 @@ impl Game {
             let mut night = Frame::default();
             w.draw(alpha, &mut night, clean);
             let over = self.draw();
-            for (to, from) in [(&mut night.top, &over.top), (&mut night.bottom, &over.bottom)] {
+            for (to, from) in [
+                (&mut night.top, &over.top),
+                (&mut night.bottom, &over.bottom),
+            ] {
                 to.clip(None);
                 to.anchor([0.5, 0.5]);
                 to.place(from, [0.0, 0.0], 1.0);
@@ -1001,12 +1200,14 @@ impl Game {
         if let State::Harvest(h) = &mut self.state
             && h.views() > 1
         {
-            frame.views = (1..h.views()).map(|v| {
-                let mut f = Frame::default();
-                h.set_canvas(fitted(v));
-                h.draw_view(v, &mut f, clean);
-                f.top
-            }).collect();
+            frame.views = (1..h.views())
+                .map(|v| {
+                    let mut f = Frame::default();
+                    h.set_canvas(fitted(v));
+                    h.draw_view(v, &mut f, clean);
+                    f.top
+                })
+                .collect();
             if h.followed(0) != 0 {
                 let mut f = Frame::default();
                 h.set_canvas(fitted(0));
@@ -1016,12 +1217,17 @@ impl Game {
             h.set_canvas(None);
             let owner = h.menu_player();
             if self.page == Page::Settings
-                && let Some(c) = std::iter::once(&mut frame.top).chain(&mut frame.views).nth(owner)
+                && let Some(c) = std::iter::once(&mut frame.top)
+                    .chain(&mut frame.views)
+                    .nth(owner)
             {
                 c.anchor([0.5, 0.5]);
                 self.draw_settings(c);
             }
-            for (canvas, &size) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
+            for (canvas, &size) in std::iter::once(&mut frame.top)
+                .chain(&mut frame.views)
+                .zip(&self.view_sizes)
+            {
                 canvas.refit(fit(size));
             }
         }
@@ -1040,7 +1246,11 @@ impl Game {
             State::Harvest(h) => {
                 h.draw(&mut f, self.clean());
                 if self.page == Page::Settings && h.views() == 1 {
-                    self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
+                    self.draw_settings(if h.one_screen() {
+                        &mut f.top
+                    } else {
+                        &mut f.bottom
+                    });
                 }
             }
             State::Gallery(g) => g.draw(&mut f),
@@ -1056,7 +1266,12 @@ impl Game {
             }
             State::Hardware(hw) => {
                 hw.draw(&mut f, &self.system, self.save.brightness, self.leds);
-                osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
+                osd::draw(
+                    &mut f.top,
+                    &self.input,
+                    self.rumble(),
+                    self.system.headphones,
+                );
                 osd::touches(&mut f.bottom, &self.input);
             }
         }
@@ -1065,15 +1280,21 @@ impl Game {
         }
         let clean = self.clean();
         if self.volume_shown > 0.0 && !clean {
-            f.top.text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
+            f.top
+                .text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
         }
         if self.shot_flash > 0.0 && !clean {
             let a = self.shot_flash / SHOT_FLASH * 0.7;
             f.top.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
-            f.bottom.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
+            f.bottom
+                .rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
         }
         if self.save.fps && !clean {
-            let top = if matches!(self.state, State::Harvest(_)) { PERF_UNDER_KILLS } else { 8.0 };
+            let top = if matches!(self.state, State::Harvest(_)) {
+                PERF_UNDER_KILLS
+            } else {
+                8.0
+            };
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
@@ -1081,13 +1302,32 @@ impl Game {
         if self.title_on_one() {
             let menu = std::mem::take(&mut f.bottom);
             let (at, k) = TITLE_MENU;
-            f.top.rect(at[0] + 190.0 * k, at[1], (SCREEN_W - 380.0) * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
+            f.top.rect(
+                at[0] + 190.0 * k,
+                at[1],
+                (SCREEN_W - 380.0) * k,
+                SCREEN_H * k,
+                [0.08, 0.08, 0.1, 0.45],
+            );
             f.top.place(&menu, at, k);
         }
         if let Some(size) = self.phone {
             let layout = self.phone_layout(size);
-            let pad = if clean { Canvas { clear: [0.0; 4], size: Some(size), ..Default::default() } } else { self.touchpad.draw(&layout) };
-            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad });
+            let pad = if clean {
+                Canvas {
+                    clear: [0.0; 4],
+                    size: Some(size),
+                    ..Default::default()
+                }
+            } else {
+                self.touchpad.draw(&layout)
+            };
+            f.phone = Some(touch::Phone {
+                size,
+                top: layout.top,
+                bottom: layout.bottom,
+                pad,
+            });
         }
         f
     }
@@ -1095,8 +1335,12 @@ impl Game {
     /// The title's line of the dead, side on: each kind turned on once, the last kind on between them.
     fn title_walkers(&self) -> Vec<&'static [art::Art]> {
         let r = harvest::roster();
-        let on: Vec<usize> = (0..r.enemies.len()).filter(|&i| self.save.enemies_off & 1 << i == 0).collect();
-        let Some(&filler) = on.last() else { return Vec::new() };
+        let on: Vec<usize> = (0..r.enemies.len())
+            .filter(|&i| self.save.enemies_off & 1 << i == 0)
+            .collect();
+        let Some(&filler) = on.last() else {
+            return Vec::new();
+        };
         let side = |i: usize| r.enemies[i].look.walk[1].as_slice();
         let mut line = vec![side(filler)];
         for &i in on.iter().rev().skip(1).take(MAX_TITLE_KINDS) {
@@ -1110,10 +1354,24 @@ impl Game {
         self.draw_title_top(f);
         let report = data::load_report();
         if !report.version.is_empty() {
-            f.top.label(format!("Version {}", report.versions()), 16.0, 12.0, 24.0, DIM, Align::Left);
+            f.top.label(
+                format!("Version {}", report.versions()),
+                16.0,
+                12.0,
+                24.0,
+                DIM,
+                Align::Left,
+            );
         }
         if let Some(joined) = joined(self.players) {
-            f.top.label(format!("{joined} joined. Start again on a joined pad to leave"), SCREEN_W / 2.0, 736.0, 24.0, HOT, Align::Center);
+            f.top.label(
+                format!("{joined} joined. Start again on a joined pad to leave"),
+                SCREEN_W / 2.0,
+                736.0,
+                24.0,
+                HOT,
+                Align::Center,
+            );
         }
     }
 
@@ -1132,39 +1390,87 @@ impl Game {
         }
         // On one screen the logo takes the top and a bigger moon sits under it, beside the menu.
         let one = self.title_on_one();
-        let ([mx, my], mk, logo_y) = if one { ([800.0, 100.0], 2.0, 52.0) } else { ([840.0, 120.0], 1.0, 240.0) };
+        let ([mx, my], mk, logo_y) = if one {
+            ([800.0, 100.0], 2.0, 52.0)
+        } else {
+            ([840.0, 120.0], 1.0, 240.0)
+        };
         // Behind the logo the moon is dimmed, so the light letters stay readable over it.
-        let lit = |c: [f32; 3], a: f32| if one { [c[0] * 0.5, c[1] * 0.5, c[2] * 0.55, a] } else { [c[0], c[1], c[2], a] };
+        let lit = |c: [f32; 3], a: f32| {
+            if one {
+                [c[0] * 0.5, c[1] * 0.5, c[2] * 0.55, a]
+            } else {
+                [c[0], c[1], c[2], a]
+            }
+        };
         f.top.circle(mx, my, 90.0 * mk, lit([0.8, 0.8, 0.7], 0.06));
-        f.top.circle(mx, my, 48.0 * mk, lit([0.85, 0.85, 0.75], 1.0));
-        f.top.circle(mx - 18.0 * mk, my - 12.0 * mk, 10.0 * mk, lit([0.75, 0.75, 0.66], 1.0));
-        f.top.circle(mx + 16.0 * mk, my + 16.0 * mk, 7.0 * mk, lit([0.75, 0.75, 0.66], 1.0));
-        f.top.rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
+        f.top
+            .circle(mx, my, 48.0 * mk, lit([0.85, 0.85, 0.75], 1.0));
+        f.top.circle(
+            mx - 18.0 * mk,
+            my - 12.0 * mk,
+            10.0 * mk,
+            lit([0.75, 0.75, 0.66], 1.0),
+        );
+        f.top.circle(
+            mx + 16.0 * mk,
+            my + 16.0 * mk,
+            7.0 * mk,
+            lit([0.75, 0.75, 0.66], 1.0),
+        );
+        f.top
+            .rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
         let walkers = self.title_walkers();
         for (i, frames) in walkers.iter().enumerate() {
             let span = SCREEN_W + 400.0;
             let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;
             let a = frames[(t * 5.0 + i as f32) as usize % frames.len()];
             // Side frames face left, as in the 3D view: flipped, they walk the way they move.
-            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, true, [0.02, 0.02, 0.03, 1.0]);
+            f.top.art(
+                a,
+                x,
+                600.0 - a.h() * 8.0 + 8.0,
+                8.0,
+                true,
+                [0.02, 0.02, 0.03, 1.0],
+            );
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
-            let x = (fm::sin(seed) * 9000.0).fract().abs() * SCREEN_W + fm::sin(t * 0.3 + seed) * 30.0;
-            let y = (fm::cos(seed) * 7000.0).fract().abs() * 560.0 + fm::cos(t * 0.4 + seed * 2.0) * 20.0;
+            let x =
+                (fm::sin(seed) * 9000.0).fract().abs() * SCREEN_W + fm::sin(t * 0.3 + seed) * 30.0;
+            let y = (fm::cos(seed) * 7000.0).fract().abs() * 560.0
+                + fm::cos(t * 0.4 + seed * 2.0) * 20.0;
             let glow = fm::powi(fm::sin(t * 1.7 + seed) * 0.5 + 0.5, 3);
-            f.top.circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
+            f.top
+                .circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
         }
         let flicker = 0.85 + 0.15 * (fm::sin(t * 13.0) * fm::sin(t * 7.3)).abs();
         let bob = if one { 0.0 } else { fm::sin(t * 1.2) * 4.0 };
-        f.top.text_centered(logo_y + 8.0 + bob, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
+        f.top.text_centered(
+            logo_y + 8.0 + bob,
+            20.0,
+            [0.0, 0.0, 0.0, 0.7],
+            "LAST HARVEST",
+        );
         if one {
             let x = (SCREEN_W - crate::font::width("LAST HARVEST") * 20.0) / 2.0;
             for (dx, dy) in [(-6.0, 0.0), (6.0, 0.0), (0.0, -6.0), (0.0, 6.0)] {
-                f.top.text(x + dx, logo_y + dy, 20.0, [0.04, 0.04, 0.07, 1.0], "LAST HARVEST");
+                f.top.text(
+                    x + dx,
+                    logo_y + dy,
+                    20.0,
+                    [0.04, 0.04, 0.07, 1.0],
+                    "LAST HARVEST",
+                );
             }
         }
-        f.top.text_centered(logo_y + bob, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
+        f.top.text_centered(
+            logo_y + bob,
+            20.0,
+            [flicker, flicker * 0.92, flicker * 0.8, 1.0],
+            "LAST HARVEST",
+        );
         // On one screen the menu sits under the logo, so the records stay on the Stats page and warnings go between.
         let warn_y = if one { 160.0 } else { 696.0 };
         if !one {
@@ -1172,24 +1478,58 @@ impl Game {
         }
         if let Some(missing) = &data::load_report().missing_pack {
             let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+            f.top.label(
+                "No game data: the game can't draw without game_data.pak.",
+                SCREEN_W / 2.0,
+                warn_y,
+                24.0,
+                red,
+                Align::Center,
+            );
+            f.top.label(
+                menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0,
+                SCREEN_W / 2.0,
+                warn_y + 32.0,
+                22.0,
+                red,
+                Align::Center,
+            );
         } else if let Some((count, first)) = data::problems() {
-            let more = if count > 1 { format!("{count} files couldn't load:") } else { "A file couldn't load:".to_string() };
+            let more = if count > 1 {
+                format!("{count} files couldn't load:")
+            } else {
+                "A file couldn't load:".to_string()
+            };
             let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label(more, SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+            f.top
+                .label(more, SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
+            f.top.label(
+                menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0,
+                SCREEN_W / 2.0,
+                warn_y + 32.0,
+                22.0,
+                red,
+                Align::Center,
+            );
         }
         self.draw_menu(f);
     }
 
     /// The title's tagline and records under the logo.
     fn draw_title_records(&self, f: &mut Frame) {
-        f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
+        f.top.label(
+            "Survive the night",
+            SCREEN_W / 2.0,
+            400.0,
+            44.0,
+            DIM,
+            Align::Center,
+        );
         let best = self.save.records(self.save.difficulty).best;
         if best > 0 {
             let line = format!("Longest night: {}:{:02}", best / 60, best % 60);
-            f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
+            f.top
+                .label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
         let (open, all, waiting) = harvest::unlocked(&self.progress());
         let line = match waiting {
@@ -1197,13 +1537,28 @@ impl Game {
             1 => format!("Powerups unlocked: {open} of {all}.  1 waiting to be found"),
             n => format!("Powerups unlocked: {open} of {all}.  {n} waiting to be found"),
         };
-        f.top.label(line, SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
+        f.top
+            .label(line, SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
         if self.reset_shown > 0.0 {
             let a = self.reset_shown.min(1.0);
-            f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
+            f.top.label(
+                "Progress erased: records, kills and found powerups",
+                SCREEN_W / 2.0,
+                480.0,
+                34.0,
+                [1.0, 0.45, 0.4, a],
+                Align::Center,
+            );
         }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
-            f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
+            f.top.label(
+                format!("Next to find: {name}. {how}"),
+                SCREEN_W / 2.0,
+                566.0,
+                24.0,
+                DIM,
+                Align::Center,
+            );
         }
     }
 }
@@ -1211,14 +1566,22 @@ impl Game {
 /// The size a 1024x768 drawing is laid out to for a view `[w, h]` pixels across and down: as wide or as tall as needed.
 fn fit([w, h]: [f32; 2]) -> [f32; 2] {
     let aspect = w / h.max(1.0);
-    if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] }
+    if aspect >= SCREEN_W / SCREEN_H {
+        [SCREEN_H * aspect, SCREEN_H]
+    } else {
+        [SCREEN_W, SCREEN_W / aspect.max(0.01)]
+    }
 }
 
 /// Players 2 and up, named for the title: "P2", "P2 and P3", "P2, P3 and P4".
 fn joined(players: usize) -> Option<String> {
     let names: Vec<String> = (2..=players).map(|n| format!("P{n}")).collect();
     let (last, rest) = names.split_last()?;
-    Some(if rest.is_empty() { last.clone() } else { format!("{} and {last}", rest.join(", ")) })
+    Some(if rest.is_empty() {
+        last.clone()
+    } else {
+        format!("{} and {last}", rest.join(", "))
+    })
 }
 
 /// Where the frame-rate overlay starts during a run, below the kill count.
@@ -1240,10 +1603,18 @@ mod tests {
         game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
         let f = game.draw_at(0.0);
         assert_eq!(f.views.len(), 1, "player 2's view");
-        assert_eq!((f.top.size, f.views[0].size), (Some([1024.0, 1152.0]), Some([1024.0, 1152.0])));
+        assert_eq!(
+            (f.top.size, f.views[0].size),
+            (Some([1024.0, 1152.0]), Some([1024.0, 1152.0]))
+        );
         let mut solo = Game::new(4);
         solo.open(Scene::Harvest);
-        assert!(solo.views() == 1 && solo.draw_at(0.0).views.is_empty() && solo.draw_at(0.0).top.size.is_none(), "one player draws as ever");
+        assert!(
+            solo.views() == 1
+                && solo.draw_at(0.0).views.is_empty()
+                && solo.draw_at(0.0).top.size.is_none(),
+            "one player draws as ever"
+        );
     }
 
     #[test]
@@ -1254,19 +1625,43 @@ mod tests {
         game.open(Scene::Harvest);
         game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
         let both = |game: &mut Game, one: Buttons, two: Buttons| {
-            game.update_all(&[Input { pressed: one, held: one, ..Default::default() }, Input { pressed: two, held: two, ..Default::default() }], 0.016);
+            game.update_all(
+                &[
+                    Input {
+                        pressed: one,
+                        held: one,
+                        ..Default::default()
+                    },
+                    Input {
+                        pressed: two,
+                        held: two,
+                        ..Default::default()
+                    },
+                ],
+                0.016,
+            );
         };
         for b in [Buttons::START, Buttons::DOWN, Buttons::A] {
             both(&mut game, Buttons::NONE, b);
         }
         assert_eq!((game.page, game.menu_view()), (Page::Settings, 1));
         both(&mut game, Buttons::DOWN, Buttons::NONE);
-        assert_eq!(game.setting, 0, "player 1's pad leaves player 2's Settings alone");
+        assert_eq!(
+            game.setting, 0,
+            "player 1's pad leaves player 2's Settings alone"
+        );
         both(&mut game, Buttons::NONE, Buttons::DOWN);
         assert_eq!(game.setting, 1);
         let f = game.draw_at(0.0);
-        let says = |c: &Canvas| c.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Settings"));
-        assert!(says(&f.views[0]) && !says(&f.top), "in player 2's view only");
+        let says = |c: &Canvas| {
+            c.shapes
+                .iter()
+                .any(|s| matches!(s, Shape::Text { text, .. } if text == "Settings"))
+        };
+        assert!(
+            says(&f.views[0]) && !says(&f.top),
+            "in player 2's view only"
+        );
         both(&mut game, Buttons::NONE, Buttons::B);
         assert_eq!(game.page, Page::Main);
     }
@@ -1275,7 +1670,10 @@ mod tests {
     fn each_seat_buzzes_on_its_own_and_rumble_off_stills_them_all() {
         let mut game = Game::new(4);
         game.buzz(1, harvest::Rumble::Hit);
-        assert!(game.rumble_for(1) && !game.rumble_for(0) && !game.outputs().rumble, "player 2's pad alone");
+        assert!(
+            game.rumble_for(1) && !game.rumble_for(0) && !game.outputs().rumble,
+            "player 2's pad alone"
+        );
         game.update(&Input::default(), 0.3);
         assert!(!game.rumble_for(1), "the pulse ends");
         game.buzz(0, harvest::Rumble::Blast);
@@ -1292,13 +1690,36 @@ mod tests {
         game.open(Scene::Harvest);
         game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
         for _ in 0..2 {
-            game.update(&Input { held: Buttons::L1, ..Default::default() }, 0.016);
+            game.update(
+                &Input {
+                    held: Buttons::L1,
+                    ..Default::default()
+                },
+                0.016,
+            );
         }
         let f = game.draw_at(0.0);
-        let tiles: Vec<f32> = f.top.shapes.iter().filter_map(|s| if let Shape::Art { y, .. } = s { Some(*y) } else { None }).collect();
-        let (top, bottom) = (tiles.iter().copied().fold(f32::MAX, f32::min), tiles.iter().copied().fold(0.0, f32::max));
+        let tiles: Vec<f32> = f
+            .top
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let Shape::Art { y, .. } = s {
+                    Some(*y)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let (top, bottom) = (
+            tiles.iter().copied().fold(f32::MAX, f32::min),
+            tiles.iter().copied().fold(0.0, f32::max),
+        );
         assert_eq!(f.top.size, Some([1024.0, 1152.0]));
-        assert!(top <= 0.0 && bottom >= 1152.0 - 64.0, "the map reaches the view's edges: {top}..{bottom}");
+        assert!(
+            top <= 0.0 && bottom >= 1152.0 - 64.0,
+            "the map reaches the view's edges: {top}..{bottom}"
+        );
     }
 
     #[test]
@@ -1312,16 +1733,36 @@ mod tests {
 
     #[test]
     fn the_title_names_the_players_who_joined() {
-        assert_eq!([1, 2, 3, 4].map(joined), [None, Some("P2".into()), Some("P2 and P3".into()), Some("P2, P3 and P4".into())]);
+        assert_eq!(
+            [1, 2, 3, 4].map(joined),
+            [
+                None,
+                Some("P2".into()),
+                Some("P2 and P3".into()),
+                Some("P2, P3 and P4".into())
+            ]
+        );
         let mut game = Game::new(1);
-        let says = |game: &Game| game.draw().top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text.contains("joined")));
+        let says = |game: &Game| {
+            game.draw()
+                .top
+                .shapes
+                .iter()
+                .any(|s| matches!(s, Shape::Text { text, .. } if text.contains("joined")))
+        };
         assert!(!says(&game) && game.at_title() && !game.in_run());
         game.set_players(3);
         assert!(says(&game));
     }
 
     fn press(game: &mut Game, b: Buttons) {
-        game.update(&Input { pressed: b, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                pressed: b,
+                ..Default::default()
+            },
+            0.016,
+        );
     }
 
     #[test]
@@ -1332,11 +1773,18 @@ mod tests {
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)));
-        assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "the paused whole map is gone");
+        assert_eq!(
+            game.phone_layout(size).key(Buttons::R2),
+            None,
+            "the paused whole map is gone"
+        );
         for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
             press(&mut game, b);
         }
-        assert!(game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(), "photo mode still changes its setting");
+        assert!(
+            game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(),
+            "photo mode still changes its setting"
+        );
     }
 
     #[test]
@@ -1349,18 +1797,33 @@ mod tests {
         assert!(matches!(game.state, State::Harvest(_)));
         let frame = game.draw();
         let phone = frame.phone.expect("a phone frame");
-        assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
+        assert!(
+            phone.top.is_some() && phone.bottom.is_none(),
+            "a run shows one screen"
+        );
         let layout = touch::layout(size, true, true, false);
         let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
         let [px, py, pw, ph] = layout.top.unwrap();
         let key = Some([kx + 4.0, ky + 4.0]);
         let mut touches = [None; MAX_TOUCHES];
         touches[0] = key;
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         game.update(&Input::default(), 0.016);
         game.take_sounds();
         touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         let flying = |g: &Game| match &g.state {
             State::Harvest(h) => h.grenades_in_the_air(),
             _ => 0,
@@ -1368,10 +1831,22 @@ mod tests {
         assert_eq!(flying(&game), 1, "a tap on the map the key put up throws");
         game.update(&Input::default(), 0.016);
         touches[0] = key;
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         game.update(&Input::default(), 0.016);
         touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert_eq!(flying(&game), 1, "a tap on the 3D view does not");
     }
 
@@ -1379,7 +1854,9 @@ mod tests {
     fn on_a_phone_holding_the_grenade_key_throws_ahead_and_longer_throws_further() {
         let size = [2400.0, 1080.0];
         let layout = touch::layout(size, true, true, false);
-        let [gx, gy, gw, gh] = layout.key(Buttons::R1).expect("a Grenade key for quick throws");
+        let [gx, gy, gw, gh] = layout
+            .key(Buttons::R1)
+            .expect("a Grenade key for quick throws");
         let hold_at = Some([gx + gw / 2.0, gy + gh / 2.0]);
         let throw_after = |frames: usize| {
             let mut game = Game::new(1);
@@ -1389,7 +1866,13 @@ mod tests {
             let mut touches = [None; MAX_TOUCHES];
             touches[0] = hold_at;
             for _ in 0..frames {
-                game.update(&Input { touches, ..Default::default() }, 0.016);
+                game.update(
+                    &Input {
+                        touches,
+                        ..Default::default()
+                    },
+                    0.016,
+                );
             }
             game.update(&Input::default(), 0.016);
             match &game.state {
@@ -1399,7 +1882,10 @@ mod tests {
         };
         let short = throw_after(1);
         let long = throw_after(45);
-        assert!(long > short + 30.0, "holding longer throws further: short={short}, long={long}");
+        assert!(
+            long > short + 30.0,
+            "holding longer throws further: short={short}, long={long}"
+        );
     }
 
     #[test]
@@ -1409,33 +1895,60 @@ mod tests {
         game.set_phone(Some(size));
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
-        let State::Harvest(h) = &mut game.state else { panic!("not in a run") };
+        let State::Harvest(h) = &mut game.state else {
+            panic!("not in a run")
+        };
         h.deal_cards_with_rerolls(1);
-        let [gx, gy, gw, gh] = touch::layout(size, true, true, false).key(Buttons::R1).expect("a Grenade key");
+        let [gx, gy, gw, gh] = touch::layout(size, true, true, false)
+            .key(Buttons::R1)
+            .expect("a Grenade key");
         let mut touches = [None; MAX_TOUCHES];
         touches[0] = Some([gx + gw / 2.0, gy + gh / 2.0]);
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         game.update(&Input::default(), 0.016);
-        let State::Harvest(h) = &game.state else { panic!("not in a run") };
-        assert!(h.choosing() && h.rerolls_left() == 1, "a tap on Grenade spent a reroll");
+        let State::Harvest(h) = &game.state else {
+            panic!("not in a run")
+        };
+        assert!(
+            h.choosing() && h.rerolls_left() == 1,
+            "a tap on Grenade spent a reroll"
+        );
         press(&mut game, Buttons::R1);
-        let State::Harvest(h) = &game.state else { panic!("not in a run") };
+        let State::Harvest(h) = &game.state else {
+            panic!("not in a run")
+        };
         assert_eq!(h.rerolls_left(), 0, "a gamepad's R1 still rerolls");
     }
 
     #[test]
     fn a_phone_sets_the_grenade_style_where_others_set_the_screens() {
         let mut game = Game::new(1);
-        assert!(game.settings_list().contains(&menu::Setting::Screens) && !game.settings_list().contains(&menu::Setting::Grenades));
+        assert!(
+            game.settings_list().contains(&menu::Setting::Screens)
+                && !game.settings_list().contains(&menu::Setting::Grenades)
+        );
         game.set_phone(Some([2400.0, 1080.0]));
         let list = game.settings_list();
         assert!(list.contains(&menu::Setting::Grenades) && !list.contains(&menu::Setting::Screens));
         game.set_phone(None);
         game.set_backlights(false);
         let list = game.settings_list();
-        assert!(!list.contains(&menu::Setting::TopBrightness) && !list.contains(&menu::Setting::BottomBrightness), "brightness only where the platform sets the backlights");
+        assert!(
+            !list.contains(&menu::Setting::TopBrightness)
+                && !list.contains(&menu::Setting::BottomBrightness),
+            "brightness only where the platform sets the backlights"
+        );
         assert!(game.save.touch_grenades, "touch by default");
-        let save = Save { touch_grenades: false, ..game.save };
+        let save = Save {
+            touch_grenades: false,
+            ..game.save
+        };
         assert!(!Save::parse(&save.to_text()).touch_grenades);
     }
 
@@ -1444,50 +1957,87 @@ mod tests {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
-        let at = game.settings_list().iter().position(|&s| s == menu::Setting::Touch).expect("a phone offers the controls");
+        let at = game
+            .settings_list()
+            .iter()
+            .position(|&s| s == menu::Setting::Touch)
+            .expect("a phone offers the controls");
         settings_row(&mut game, at);
         assert_eq!(game.save.touch, TouchControls::Auto, "Auto by default");
         press(&mut game, Buttons::RIGHT);
         assert_eq!(game.save.touch, TouchControls::On);
         press(&mut game, Buttons::A);
         assert_eq!(game.save.touch, TouchControls::Off);
-        assert!(!game.has_touch() && !game.settings_list().contains(&menu::Setting::Grenades), "Off leaves out the grenade style");
+        assert!(
+            !game.has_touch() && !game.settings_list().contains(&menu::Setting::Grenades),
+            "Off leaves out the grenade style"
+        );
         assert_eq!(Save::parse(&game.save.to_text()).touch, TouchControls::Off);
         press(&mut game, Buttons::B);
         let phone = game.draw().phone.unwrap();
-        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title as without touch");
+        assert!(
+            phone.top.is_some() && phone.bottom.is_none(),
+            "the title as without touch"
+        );
         for _ in 0..2 {
             press(&mut game, Buttons::UP);
         }
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
-        let State::Harvest(_) = &game.state else { panic!("a run starts") };
-        assert_eq!(game.phone_layout(size).key(Buttons::L2), None, "a run without the controls");
+        let State::Harvest(_) = &game.state else {
+            panic!("a run starts")
+        };
+        assert_eq!(
+            game.phone_layout(size).key(Buttons::L2),
+            None,
+            "a run without the controls"
+        );
 
-        let walk = Input { held: Buttons::RIGHT, ..Default::default() };
+        let walk = Input {
+            held: Buttons::RIGHT,
+            ..Default::default()
+        };
         for (touch, hidden) in [(TouchControls::Auto, true), (TouchControls::On, false)] {
             game.load(Save { touch, ..game.save });
             game.touchpad.hidden = false;
             game.update(&walk, 0.016);
             assert!(game.phone_layout(size).key(Buttons::L2).is_some());
-            assert_eq!(game.touchpad.hidden, hidden, "{touch:?}: the pad hides the controls only in Auto");
+            assert_eq!(
+                game.touchpad.hidden, hidden,
+                "{touch:?}: the pad hides the controls only in Auto"
+            );
         }
         game.touchpad.hidden = true;
         game.update(&walk, 0.016);
         assert!(!game.touchpad.hidden, "On brings them back");
 
         game.set_touch(false);
-        game.load(Save { touch: TouchControls::On, ..game.save });
-        assert!(!game.has_touch(), "a screen without touch has no controls whatever Settings says");
+        game.load(Save {
+            touch: TouchControls::On,
+            ..game.save
+        });
+        assert!(
+            !game.has_touch(),
+            "a screen without touch has no controls whatever Settings says"
+        );
         game.page = Page::Settings;
         game.open_settings(true);
-        assert!(!game.settings_list().contains(&menu::Setting::Touch), "nor the row");
+        assert!(
+            !game.settings_list().contains(&menu::Setting::Touch),
+            "nor the row"
+        );
     }
 
     fn finger(game: &mut Game, at: [f32; 2]) {
         let mut touches = [None; MAX_TOUCHES];
         touches[0] = Some(at);
-        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touches,
+                ..Default::default()
+            },
+            0.016,
+        );
         game.update(&Input::default(), 0.016);
     }
 
@@ -1495,16 +2045,30 @@ mod tests {
     fn off_comes_back_to_auto_at_a_touch_until_a_button_or_stick_is_used() {
         let mut game = Game::new(1);
         game.set_phone(Some([720.0, 480.0]));
-        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        game.load(Save {
+            touch: TouchControls::Off,
+            ..Save::default()
+        });
         finger(&mut game, [10.0, 10.0]);
-        assert_eq!(game.save().touch, TouchControls::Auto, "a touch-only player is never stranded");
+        assert_eq!(
+            game.save().touch,
+            TouchControls::Auto,
+            "a touch-only player is never stranded"
+        );
 
         let mut game = Game::new(1);
         game.set_phone(Some([720.0, 480.0]));
         press(&mut game, Buttons::DOWN);
-        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        game.load(Save {
+            touch: TouchControls::Off,
+            ..Save::default()
+        });
         finger(&mut game, [10.0, 10.0]);
-        assert_eq!(game.save().touch, TouchControls::Off, "a pad player's Off stays");
+        assert_eq!(
+            game.save().touch,
+            TouchControls::Off,
+            "a pad player's Off stays"
+        );
     }
 
     #[test]
@@ -1514,15 +2078,28 @@ mod tests {
         game.set_phone(Some(size));
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::UP);
-        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        game.load(Save {
+            touch: TouchControls::Off,
+            ..Save::default()
+        });
         assert!(game.title_on_one());
         let ([ax, ay], k) = TITLE_MENU;
         let settings = [SCREEN_W / 2.0, menu::ROWS_TOP + menu::ROW_H + 20.0];
         let on_top = [ax + settings[0] * k, ay + settings[1] * k];
         let [px, py, pw, ph] = game.phone_layout(size).top.unwrap();
-        finger(&mut game, [px + on_top[0] / SCREEN_W * pw, py + on_top[1] / SCREEN_H * ph]);
+        finger(
+            &mut game,
+            [
+                px + on_top[0] / SCREEN_W * pw,
+                py + on_top[1] / SCREEN_H * ph,
+            ],
+        );
         assert_eq!(game.page, Page::Settings);
-        assert_eq!(title_menu_touch([ax - 1.0, ay]), None, "a tap beside the menu misses it");
+        assert_eq!(
+            title_menu_touch([ax - 1.0, ay]),
+            None,
+            "a tap beside the menu misses it"
+        );
     }
 
     fn recorded_night(ticks: usize) -> Vec<u8> {
@@ -1535,8 +2112,18 @@ mod tests {
         game.record_replays(vec![("game".into(), "test".into())]);
         game.open(Scene::Harvest);
         for i in 0..ticks {
-            let held = if i % 200 < 100 { Buttons::UP } else { Buttons::LEFT | Buttons::UP };
-            game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+            let held = if i % 200 < 100 {
+                Buttons::UP
+            } else {
+                Buttons::LEFT | Buttons::UP
+            };
+            game.update(
+                &Input {
+                    held,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+            );
         }
         game.open(Scene::Title);
         game.take_replays().pop().expect("a replay")
@@ -1553,9 +2140,19 @@ mod tests {
         assert_eq!(game.page, Page::Stats);
         press(&mut game, Buttons::X);
         assert_eq!(game.page, Page::Replays);
-        assert!(game.take_replays_request() && !game.take_replays_request(), "asked once");
+        assert!(
+            game.take_replays_request() && !game.take_replays_request(),
+            "asked once"
+        );
         game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
-        assert!(game.saved_replays[0].line.as_ref().is_ok_and(|l| l.starts_with("2026-11-21 05:11")), "{:?}", game.saved_replays[0].line);
+        assert!(
+            game.saved_replays[0]
+                .line
+                .as_ref()
+                .is_ok_and(|l| l.starts_with("2026-11-21 05:11")),
+            "{:?}",
+            game.saved_replays[0].line
+        );
         game.record_replays(vec![("game".into(), "test".into())]);
         let save = game.save().to_text();
         press(&mut game, Buttons::A);
@@ -1566,8 +2163,13 @@ mod tests {
             game.update(&Input::default(), 1.0 / 60.0);
             game.draw_at(0.5);
         }
-        let State::Watch(w) = &game.state else { panic!("still watching") };
-        assert!(w.ended() && w.drift().is_none(), "600 ticks at 4x in 200 frames, matching");
+        let State::Watch(w) = &game.state else {
+            panic!("still watching")
+        };
+        assert!(
+            w.ended() && w.drift().is_none(),
+            "600 ticks at 4x in 200 frames, matching"
+        );
         assert_eq!(game.save().to_text(), save, "the save is untouched");
         assert!(game.take_replays().is_empty(), "watching records nothing");
         press(&mut game, Buttons::B);
@@ -1586,11 +2188,20 @@ mod tests {
         for _ in 0..300 {
             game.update(&Input::default(), 1.0 / 60.0);
         }
-        let State::Watch(w) = &game.state else { panic!("watching") };
+        let State::Watch(w) = &game.state else {
+            panic!("watching")
+        };
         assert_eq!(w.drift().map(|d| d.tick), Some(120));
         assert!(w.paused() && !w.ended(), "it stops at the drift");
         let f = game.draw_at(1.0);
-        assert!(f.bottom.shapes.iter().chain(&f.top.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text.starts_with("Drifted"))), "and says where");
+        assert!(
+            f.bottom
+                .shapes
+                .iter()
+                .chain(&f.top.shapes)
+                .any(|s| matches!(s, Shape::Text { text, .. } if text.starts_with("Drifted"))),
+            "and says where"
+        );
     }
 
     #[test]
@@ -1606,9 +2217,20 @@ mod tests {
             game.draw_at(0.5);
         }
         let f = game.draw_at(1.0);
-        assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text.contains("P2"))), "names whose view it is");
-        let State::Watch(w) = &game.state else { panic!("watching") };
-        assert!(w.ended() && w.drift().is_none(), "drawing as P2 changes nothing");
+        assert!(
+            f.top
+                .shapes
+                .iter()
+                .any(|s| matches!(s, Shape::Text { text, .. } if text.contains("P2"))),
+            "names whose view it is"
+        );
+        let State::Watch(w) = &game.state else {
+            panic!("watching")
+        };
+        assert!(
+            w.ended() && w.drift().is_none(),
+            "drawing as P2 changes nothing"
+        );
     }
 
     #[test]
@@ -1618,14 +2240,28 @@ mod tests {
         game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
         game.page = Page::Replays;
         press(&mut game, Buttons::A);
-        let tap = |game: &mut Game, x: f32, y: f32| game.update(&Input { touch: Some([x, y]), touch_started: true, ..Default::default() }, 1.0 / 60.0);
+        let tap = |game: &mut Game, x: f32, y: f32| {
+            game.update(
+                &Input {
+                    touch: Some([x, y]),
+                    touch_started: true,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+            )
+        };
         tap(&mut game, 430.0, 90.0);
-        let State::Watch(w) = &game.state else { panic!("watching") };
+        let State::Watch(w) = &game.state else {
+            panic!("watching")
+        };
         assert!(w.paused(), "the third button pauses");
         tap(&mut game, SCREEN_W - 100.0, 90.0);
         assert!(game.in_photo(), "the last opens photo mode");
         press(&mut game, Buttons::B);
-        assert!(!game.in_photo() && matches!(game.state, State::Watch(_)), "B leaves photo mode, not the replay");
+        assert!(
+            !game.in_photo() && matches!(game.state, State::Watch(_)),
+            "B leaves photo mode, not the replay"
+        );
         tap(&mut game, 100.0, 90.0);
         assert!(matches!(game.state, State::Title), "the first leaves");
     }
@@ -1640,13 +2276,21 @@ mod tests {
     }
 
     fn watched(game: &Game) -> &watch::Watching {
-        let State::Watch(w) = &game.state else { panic!("watching") };
+        let State::Watch(w) = &game.state else {
+            panic!("watching")
+        };
         w
     }
 
     fn hold_for(game: &mut Game, held: Buttons, frames: usize) {
         for _ in 0..frames {
-            game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+            game.update(
+                &Input {
+                    held,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+            );
             game.draw_at(1.0);
         }
     }
@@ -1655,11 +2299,24 @@ mod tests {
     fn photo_on_the_replay(game: &mut Game) {
         game.set_captures(true);
         press(game, Buttons::X);
-        assert!(game.in_photo() && watched(game).paused(), "X pauses and opens photo mode");
+        assert!(
+            game.in_photo() && watched(game).paused(),
+            "X pauses and opens photo mode"
+        );
         let f = game.draw_at(1.0);
-        assert!(f.top.shapes.iter().chain(&f.bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE")), "with its guides");
+        assert!(
+            f.top
+                .shapes
+                .iter()
+                .chain(&f.bottom.shapes)
+                .any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE")),
+            "with its guides"
+        );
         press(game, Buttons::R2);
-        assert!(game.take_screenshot().is_none(), "R2 changes the setting instead of taking a screenshot");
+        assert!(
+            game.take_screenshot().is_none(),
+            "R2 changes the setting instead of taking a screenshot"
+        );
         for _ in 0..6 {
             press(game, Buttons::L2);
         }
@@ -1675,9 +2332,16 @@ mod tests {
         press(game, Buttons::R2);
         press(game, Buttons::R2);
         press(game, Buttons::R1);
-        assert_eq!(game.take_screenshot(), Some(Capture::Photo), "R1 takes a photo");
+        assert_eq!(
+            game.take_screenshot(),
+            Some(Capture::Photo),
+            "R1 takes a photo"
+        );
         press(game, Buttons::B);
-        assert!(!game.in_photo() && watched(game).paused(), "B goes back to the paused replay");
+        assert!(
+            !game.in_photo() && watched(game).paused(),
+            "B goes back to the paused replay"
+        );
     }
 
     #[test]
@@ -1689,10 +2353,17 @@ mod tests {
         let at = watched(&game).at();
         assert!(at.0 > 150, "{at:?}");
         photo_on_the_replay(&mut game);
-        assert_eq!(watched(&game).at(), at, "the same tick, and nothing the replay checks moved");
+        assert_eq!(
+            watched(&game).at(),
+            at,
+            "the same tick, and nothing the replay checks moved"
+        );
         press(&mut game, Buttons::A);
         hold_for(&mut game, Buttons::NONE, 500);
-        assert!(watched(&game).ended() && watched(&game).drift().is_none(), "it plays to its end matching the recording");
+        assert!(
+            watched(&game).ended() && watched(&game).drift().is_none(),
+            "it plays to its end matching the recording"
+        );
     }
 
     #[test]
@@ -1706,7 +2377,14 @@ mod tests {
                 160 => Buttons::A,
                 _ => Buttons::NONE,
             };
-            game.update(&Input { held: Buttons::UP, pressed, ..Default::default() }, 1.0 / 60.0);
+            game.update(
+                &Input {
+                    held: Buttons::UP,
+                    pressed,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+            );
         }
         game.open(Scene::Title);
         let mut game = watching(game.take_replays().pop().expect("a replay"));
@@ -1739,27 +2417,63 @@ mod tests {
         let mut game = Game::new(11);
         game.record_replays(vec![("game".into(), "test".into())]);
         game.open(Scene::Harvest);
-        let opens = [(60, Buttons::START), (61, Buttons::DOWN), (62, Buttons::DOWN), (63, Buttons::A)];
-        let presses: Vec<(usize, Buttons)> = opens.into_iter().chain((64..70).map(|i| (i, Buttons::L2))).chain([(220, Buttons::B), (221, Buttons::B)]).collect();
+        let opens = [
+            (60, Buttons::START),
+            (61, Buttons::DOWN),
+            (62, Buttons::DOWN),
+            (63, Buttons::A),
+        ];
+        let presses: Vec<(usize, Buttons)> = opens
+            .into_iter()
+            .chain((64..70).map(|i| (i, Buttons::L2)))
+            .chain([(220, Buttons::B), (221, Buttons::B)])
+            .collect();
         for i in 0..300 {
-            let pressed = presses.iter().find(|p| p.0 == i).map_or(Buttons::NONE, |p| p.1);
-            let held = if (80..200).contains(&i) { Buttons::UP | Buttons::RIGHT } else { Buttons::NONE };
-            game.update(&Input { held, pressed, ..Default::default() }, 1.0 / 60.0);
+            let pressed = presses
+                .iter()
+                .find(|p| p.0 == i)
+                .map_or(Buttons::NONE, |p| p.1);
+            let held = if (80..200).contains(&i) {
+                Buttons::UP | Buttons::RIGHT
+            } else {
+                Buttons::NONE
+            };
+            game.update(
+                &Input {
+                    held,
+                    pressed,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+            );
         }
         assert!(!game.in_photo());
         game.open(Scene::Title);
         let mut game = watching(game.take_replays().pop().expect("a replay"));
         hold_for(&mut game, Buttons::NONE, 150);
         press(&mut game, Buttons::A);
-        let says_photo = |game: &mut Game| game.draw_at(1.0).top.shapes.iter().chain(&game.draw_at(1.0).bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE"));
-        assert!(says_photo(&mut game), "the recording is walking in its own photo mode");
+        let says_photo = |game: &mut Game| {
+            game.draw_at(1.0)
+                .top
+                .shapes
+                .iter()
+                .chain(&game.draw_at(1.0).bottom.shapes)
+                .any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE"))
+        };
+        assert!(
+            says_photo(&mut game),
+            "the recording is walking in its own photo mode"
+        );
         let at = watched(&game).at();
         photo_on_the_replay(&mut game);
         assert_eq!(watched(&game).at(), at);
         assert!(says_photo(&mut game), "and its own photo mode is back");
         press(&mut game, Buttons::A);
         hold_for(&mut game, Buttons::NONE, 200);
-        assert!(watched(&game).ended() && watched(&game).drift().is_none(), "the walk and the photo mode over it replay matching");
+        assert!(
+            watched(&game).ended() && watched(&game).drift().is_none(),
+            "the walk and the photo mode over it replay matching"
+        );
     }
 
     #[test]
@@ -1772,13 +2486,21 @@ mod tests {
         let next = watched(&game).at();
         assert_eq!(next.0, at.0 + 1, "Right steps a tick");
         press(&mut game, Buttons::LEFT);
-        assert_eq!(watched(&game).at(), at, "Left steps back to exactly where it was");
+        assert_eq!(
+            watched(&game).at(),
+            at,
+            "Left steps back to exactly where it was"
+        );
         press(&mut game, Buttons::LEFT);
         assert_eq!(watched(&game).at().0, at.0 - 1);
         assert!(watched(&game).paused() && watched(&game).drift().is_none());
         press(&mut game, Buttons::RIGHT);
         press(&mut game, Buttons::RIGHT);
-        assert_eq!(watched(&game).at(), next, "and forward again to the same night");
+        assert_eq!(
+            watched(&game).at(),
+            next,
+            "and forward again to the same night"
+        );
     }
 
     #[test]
@@ -1788,9 +2510,16 @@ mod tests {
         game.set_phone(Some(size));
         game.set_touch(true);
         game.save.touch = TouchControls::On;
-        assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "watching has only its strip");
+        assert_eq!(
+            game.phone_layout(size).key(Buttons::R2),
+            None,
+            "watching has only its strip"
+        );
         press(&mut game, Buttons::X);
-        assert!(game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(), "photo mode has Change");
+        assert!(
+            game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(),
+            "photo mode has Change"
+        );
     }
 
     #[test]
@@ -1815,33 +2544,66 @@ mod tests {
         game.set_touch(false);
         let f = game.draw();
         let phone = f.phone.unwrap();
-        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title's screen, not the menu's");
-        assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Play")), "with the menu on it");
+        assert!(
+            phone.top.is_some() && phone.bottom.is_none(),
+            "the title's screen, not the menu's"
+        );
+        assert!(
+            f.top
+                .shapes
+                .iter()
+                .any(|s| matches!(s, Shape::Text { text, .. } if text == "Play")),
+            "with the menu on it"
+        );
         for _ in 0..3 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
         let phone = game.draw().phone.unwrap();
-        assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
+        assert!(
+            phone.top.is_none() && phone.bottom.is_some(),
+            "Settings shows full size"
+        );
     }
 
     #[test]
     fn at_every_handheld_shape_one_screen_fills_the_window_at_4_3() {
-        let handhelds = [[640.0, 480.0], [720.0, 720.0], [720.0, 480.0], [960.0, 544.0], [480.0, 640.0]];
+        let handhelds = [
+            [640.0, 480.0],
+            [720.0, 720.0],
+            [720.0, 480.0],
+            [960.0, 544.0],
+            [480.0, 640.0],
+        ];
         let shapes = (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]);
         for size in handhelds.into_iter().chain(shapes) {
             let mut game = Game::new(1);
             game.set_phone(Some(size));
             game.set_touch(false);
             let check = |game: &mut Game, held: Buttons, what: &str| {
-                game.update(&Input { held, ..Default::default() }, 0.016);
+                game.update(
+                    &Input {
+                        held,
+                        ..Default::default()
+                    },
+                    0.016,
+                );
                 let phone = game.draw().phone.unwrap();
                 let shown: Vec<_> = [phone.top, phone.bottom].into_iter().flatten().collect();
                 assert_eq!(shown.len(), 1, "{size:?} {what}: one screen");
                 let [x, y, w, h] = shown[0];
-                assert!((w / h - SCREEN_W / SCREEN_H).abs() < 1e-3, "{size:?} {what}: {w}x{h} is stretched");
-                assert!(x >= -0.01 && y >= -0.01 && x + w <= size[0] + 0.01 && y + h <= size[1] + 0.01, "{size:?} {what}: clipped");
-                assert!((w - size[0]).abs() < 0.01 || (h - size[1]).abs() < 0.01, "{size:?} {what}: smaller than the window allows");
+                assert!(
+                    (w / h - SCREEN_W / SCREEN_H).abs() < 1e-3,
+                    "{size:?} {what}: {w}x{h} is stretched"
+                );
+                assert!(
+                    x >= -0.01 && y >= -0.01 && x + w <= size[0] + 0.01 && y + h <= size[1] + 0.01,
+                    "{size:?} {what}: clipped"
+                );
+                assert!(
+                    (w - size[0]).abs() < 0.01 || (h - size[1]).abs() < 0.01,
+                    "{size:?} {what}: smaller than the window allows"
+                );
             };
             check(&mut game, Buttons::NONE, "title");
             settings_row(&mut game, 0);
@@ -1854,7 +2616,11 @@ mod tests {
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
-            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R1, "quick throw")] {
+            for (held, what) in [
+                (Buttons::L1, "map"),
+                (Buttons::L2, "grenade aim"),
+                (Buttons::R1, "quick throw"),
+            ] {
                 check(&mut game, held, what);
                 check(&mut game, Buttons::NONE, what);
             }
@@ -1873,7 +2639,12 @@ mod tests {
             press(&mut game, Buttons::A);
             press(&mut game, Buttons::START);
             let f = game.draw();
-            let shown = f.top.shapes.iter().chain(&f.bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text.contains("tap")));
+            let shown = f
+                .top
+                .shapes
+                .iter()
+                .chain(&f.bottom.shapes)
+                .any(|s| matches!(s, Shape::Text { text, .. } if text.contains("tap")));
             assert_eq!(shown, taps, "touch {touch}");
         }
     }
@@ -1885,13 +2656,36 @@ mod tests {
         game.set_touch(false);
         let texts = |game: &Game| {
             let f = game.draw();
-            f.top.shapes.iter().chain(&f.bottom.shapes).filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n")
+            f.top
+                .shapes
+                .iter()
+                .chain(&f.bottom.shapes)
+                .filter_map(|s| {
+                    if let Shape::Text { text, .. } = s {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
         };
-        assert!(texts(&game).contains("L1: map.") && texts(&game).contains("B: turn around."), "{}", texts(&game));
-        for (family, map, turn) in [(PadFamily::Xbox, "LB: map.", "A: turn around."), (PadFamily::PlayStation, "L1: map.", "Cross: turn around."), (PadFamily::Keyboard, "Tab: map.", "R: turn around.")] {
+        assert!(
+            texts(&game).contains("L1: map.") && texts(&game).contains("B: turn around."),
+            "{}",
+            texts(&game)
+        );
+        for (family, map, turn) in [
+            (PadFamily::Xbox, "LB: map.", "A: turn around."),
+            (PadFamily::PlayStation, "L1: map.", "Cross: turn around."),
+            (PadFamily::Keyboard, "Tab: map.", "R: turn around."),
+        ] {
             game.set_pad_family(family);
             let shown = texts(&game);
-            assert!(shown.contains(map) && shown.contains(turn), "{family:?}: {shown}");
+            assert!(
+                shown.contains(map) && shown.contains(turn),
+                "{family:?}: {shown}"
+            );
         }
         game.set_pad_family(PadFamily::Nintendo);
     }
@@ -1904,10 +2698,27 @@ mod tests {
         game.set_touch(false);
         let f = game.draw();
         let k = size[1] / SCREEN_H;
-        let texts: Vec<_> = f.top.shapes.iter().filter_map(|s| if let Shape::Text { text, size, .. } = s { Some((text.clone(), *size)) } else { None }).collect();
-        let help: Vec<_> = texts.iter().filter(|(t, ..)| t.contains("turn around") || t.contains("L2")).collect();
+        let texts: Vec<_> = f
+            .top
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let Shape::Text { text, size, .. } = s {
+                    Some((text.clone(), *size))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let help: Vec<_> = texts
+            .iter()
+            .filter(|(t, ..)| t.contains("turn around") || t.contains("L2"))
+            .collect();
         assert_eq!(help.len(), 2, "two lines of keys: {texts:?}");
-        assert!(texts.iter().all(|(t, ..)| !t.contains("Tap")), "no taps without touch");
+        assert!(
+            texts.iter().all(|(t, ..)| !t.contains("Tap")),
+            "no taps without touch"
+        );
         for (text, px) in help {
             assert!(px * k >= 12.0, "{text}: {} window pixels high", px * k);
         }
@@ -1917,22 +2728,47 @@ mod tests {
     fn a_or_a_tap_on_the_title_starts_a_run_and_back_returns() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Title) && game.page == Page::Setup, "Play opens its page");
+        assert!(
+            matches!(game.state, State::Title) && game.page == Page::Setup,
+            "Play opens its page"
+        );
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Harvest(_)), "on Start, so A again plays");
+        assert!(
+            matches!(game.state, State::Harvest(_)),
+            "on Start, so A again plays"
+        );
         press(&mut game, Buttons::BACK);
         assert!(matches!(game.state, State::Title));
-        game.update(&Input { touch: Some([512.0, menu::ROWS_TOP + menu::ROW_H + 20.0]), touch_started: true, ..Default::default() }, 0.016);
+        game.update(
+            &Input {
+                touch: Some([512.0, menu::ROWS_TOP + menu::ROW_H + 20.0]),
+                touch_started: true,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert_eq!(game.page, Page::Settings, "a tap on a row opens it");
         press(&mut game, Buttons::B);
-        let tap = |game: &mut Game, at: [f32; 2]| game.update(&Input { touch: Some(at), touch_started: true, ..Default::default() }, 0.016);
+        let tap = |game: &mut Game, at: [f32; 2]| {
+            game.update(
+                &Input {
+                    touch: Some(at),
+                    touch_started: true,
+                    ..Default::default()
+                },
+                0.016,
+            )
+        };
         tap(&mut game, [512.0, 60.0]);
         assert_eq!(game.page, Page::Setup);
         tap(&mut game, [100.0, 660.0]);
         assert_eq!(game.page, Page::Main, "its Back goes back");
         tap(&mut game, [512.0, 60.0]);
         tap(&mut game, [700.0, 660.0]);
-        assert!(matches!(game.state, State::Harvest(_)), "and a tap on Start plays");
+        assert!(
+            matches!(game.state, State::Harvest(_)),
+            "and a tap on Start plays"
+        );
     }
 
     #[test]
@@ -1943,13 +2779,26 @@ mod tests {
         let mut t = InputTracker::default();
         // Tapping A and X every other frame starts the run and picks each level-up, so the run plays out.
         for i in 0..60 * 60 * 10 {
-            let held = if i % 2 == 0 { Buttons::A | Buttons::X } else { Buttons::NONE };
-            game.update(&t.frame(RawInput { held, ..Default::default() }), 1.0 / 60.0);
+            let held = if i % 2 == 0 {
+                Buttons::A | Buttons::X
+            } else {
+                Buttons::NONE
+            };
+            game.update(
+                &t.frame(RawInput {
+                    held,
+                    ..Default::default()
+                }),
+                1.0 / 60.0,
+            );
             if game.save().records(game.save().difficulty).best > 0 {
                 break;
             }
         }
-        assert!(game.save().records(Difficulty::EASY).best > 0, "the first run is on Easy");
+        assert!(
+            game.save().records(Difficulty::EASY).best > 0,
+            "the first run is on Easy"
+        );
     }
 
     #[test]
@@ -1966,7 +2815,11 @@ mod tests {
     #[test]
     fn closing_the_lid_freezes_the_game_and_turns_the_screens_off() {
         let mut game = Game::new(1);
-        let input = Input { lid_closed: true, pressed: Buttons::START, ..Default::default() };
+        let input = Input {
+            lid_closed: true,
+            pressed: Buttons::START,
+            ..Default::default()
+        };
         game.update(&input, 0.016);
         assert!(matches!(game.state, State::Title));
         assert_eq!(game.outputs().screens_on, [false; 2]);
@@ -1975,7 +2828,18 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "single", "farm", "bench", "bench-corn", "art", "icon", "range", "hardware"] {
+        for name in [
+            "title",
+            "harvest",
+            "single",
+            "farm",
+            "bench",
+            "bench-corn",
+            "art",
+            "icon",
+            "range",
+            "hardware",
+        ] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
@@ -1986,14 +2850,24 @@ mod tests {
         let mut game = Game::new(1);
         game.set_range(RangeSetup::read("shotgun:2").unwrap());
         game.open(Scene::from_name("range").unwrap());
-        let State::Harvest(h) = &game.state else { panic!("the range is a run") };
-        assert!(h.summary().starts_with("range shotgun 2"), "{}", h.summary());
+        let State::Harvest(h) = &game.state else {
+            panic!("the range is a run")
+        };
+        assert!(
+            h.summary().starts_with("range shotgun 2"),
+            "{}",
+            h.summary()
+        );
     }
 
     /// Opens Settings, then its Controls page, from the title.
     fn open_controls(game: &mut Game) {
         settings_row(game, 0);
-        let row = game.settings_list().iter().position(|&s| s == menu::Setting::Controls).expect("Settings lists Controls");
+        let row = game
+            .settings_list()
+            .iter()
+            .position(|&s| s == menu::Setting::Controls)
+            .expect("Settings lists Controls");
         for _ in 0..row {
             press(game, Buttons::DOWN);
         }
@@ -2003,7 +2877,18 @@ mod tests {
 
     fn note(game: &Game) -> String {
         let f = game.draw();
-        f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n")
+        f.bottom
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let Shape::Text { text, .. } = s {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     #[test]
@@ -2015,19 +2900,38 @@ mod tests {
         }
         assert_eq!(controls::ACTIONS[3].0, Buttons::X);
         press(&mut game, Buttons::A);
-        assert!(note(&game).contains("Press the button for Pick, aim at barrels"), "{}", note(&game));
+        assert!(
+            note(&game).contains("Press the button for Pick, aim at barrels"),
+            "{}",
+            note(&game)
+        );
         press(&mut game, Buttons::R1);
         let c = game.save().controls;
-        assert_eq!((c.physical(Buttons::X), c.physical(Buttons::R1)), (Buttons::R1, Buttons::X));
-        assert!(note(&game).contains("Swapped with Throw ahead, reroll"), "{}", note(&game));
-        assert_eq!(Save::parse(&game.save().to_text()).controls, c, "the save keeps it");
+        assert_eq!(
+            (c.physical(Buttons::X), c.physical(Buttons::R1)),
+            (Buttons::R1, Buttons::X)
+        );
+        assert!(
+            note(&game).contains("Swapped with Throw ahead, reroll"),
+            "{}",
+            note(&game)
+        );
+        assert_eq!(
+            Save::parse(&game.save().to_text()).controls,
+            c,
+            "the save keeps it"
+        );
 
         for _ in 0..3 {
             press(&mut game, Buttons::UP);
         }
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::R2);
-        assert_eq!(game.take_screenshot(), None, "a button pressed to bind does nothing else");
+        assert_eq!(
+            game.take_screenshot(),
+            None,
+            "a button pressed to bind does nothing else"
+        );
         assert_eq!(game.save().controls.physical(Buttons::Y), Buttons::R2);
     }
 
@@ -2038,17 +2942,31 @@ mod tests {
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::B);
-        assert_eq!(game.save().controls.physical(Buttons::A), Buttons::B, "B chooses now");
-        assert_eq!(game.escape(), Buttons::A, "and Esc backs out on the button B moved to");
+        assert_eq!(
+            game.save().controls.physical(Buttons::A),
+            Buttons::B,
+            "B chooses now"
+        );
+        assert_eq!(
+            game.escape(),
+            Buttons::A,
+            "and Esc backs out on the button B moved to"
+        );
         press(&mut game, Buttons::B);
-        assert!(game.rebind.as_ref().is_some_and(|r| r.waiting()), "the pad's B chose the row instead of leaving");
+        assert!(
+            game.rebind.as_ref().is_some_and(|r| r.waiting()),
+            "the pad's B chose the row instead of leaving"
+        );
         press(&mut game, Buttons::B);
         press(&mut game, Buttons::UP);
         press(&mut game, Buttons::UP);
         press(&mut game, Buttons::B);
         assert!(game.save().controls.is_default(), "the Default row");
         press(&mut game, Buttons::B);
-        assert!(game.rebind.is_none() && game.page == Page::Settings, "B leaves Controls for Settings");
+        assert!(
+            game.rebind.is_none() && game.page == Page::Settings,
+            "B leaves Controls for Settings"
+        );
     }
 
     #[test]
@@ -2057,11 +2975,22 @@ mod tests {
         open_controls(&mut game);
         let [x, y, w, h] = menu::control_row(2);
         let at = [x + w / 2.0, y + h / 2.0];
-        let tap = |game: &mut Game| game.update(&Input { touch: Some(at), touch_started: true, ..Default::default() }, 0.016);
+        let tap = |game: &mut Game| {
+            game.update(
+                &Input {
+                    touch: Some(at),
+                    touch_started: true,
+                    ..Default::default()
+                },
+                0.016,
+            )
+        };
         tap(&mut game);
         assert!(game.rebind.as_ref().is_some_and(|r| r.waiting()));
         tap(&mut game);
-        assert!(game.rebind.as_ref().is_some_and(|r| !r.waiting()) && game.save().controls.is_default());
+        assert!(
+            game.rebind.as_ref().is_some_and(|r| !r.waiting()) && game.save().controls.is_default()
+        );
     }
 
     /// Opens Settings from the title and moves to its `row`.
@@ -2079,16 +3008,36 @@ mod tests {
     #[test]
     fn reset_takes_two_presses_and_keeps_the_settings() {
         let mut game = Game::new(1);
-        let kept = Save { volume: 2, difficulty: Difficulty::HARD, ..Save::default() };
+        let kept = Save {
+            volume: 2,
+            difficulty: Difficulty::HARD,
+            ..Save::default()
+        };
         let mut played = kept;
-        *played.records_mut(Difficulty::HARD).unwrap() = crate::save::Records { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..Default::default() };
+        *played.records_mut(Difficulty::HARD).unwrap() = crate::save::Records {
+            kills: 900,
+            best: 300,
+            best_level: 9,
+            nights: 4,
+            dawns: 1,
+            found: 0b110,
+            ..Default::default()
+        };
         game.load(played);
         settings_row(&mut game, 8);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "one press only asks");
+        assert_eq!(
+            game.save().records(Difficulty::HARD).kills,
+            900,
+            "one press only asks"
+        );
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "the question times out");
+        assert_eq!(
+            game.save().records(Difficulty::HARD).kills,
+            900,
+            "the question times out"
+        );
         press(&mut game, Buttons::A);
         assert_eq!(game.save(), kept);
         assert!(game.reset_shown > 0.0, "the title says so");
@@ -2122,14 +3071,24 @@ mod tests {
     #[test]
     fn the_corner_map_row_shows_on_one_screen_and_its_choice_persists() {
         let mut game = Game::new(1);
-        assert!(!game.settings_list().contains(&menu::Setting::CornerMap), "two screens have no corner map");
+        assert!(
+            !game.settings_list().contains(&menu::Setting::CornerMap),
+            "two screens have no corner map"
+        );
         game.save.one_screen = true;
         game.page = Page::Settings;
-        game.setting = game.settings_list().iter().position(|&s| s == menu::Setting::CornerMap).expect("the row");
+        game.setting = game
+            .settings_list()
+            .iter()
+            .position(|&s| s == menu::Setting::CornerMap)
+            .expect("the row");
         press(&mut game, Buttons::A);
         assert!(!game.save.corner_map);
         assert!(!crate::save::Save::parse(&game.save.to_text()).corner_map);
-        assert!(crate::save::Save::parse("layout=one\n").corner_map, "on in an old save");
+        assert!(
+            crate::save::Save::parse("layout=one\n").corner_map,
+            "on in an old save"
+        );
     }
 
     #[test]
@@ -2195,32 +3154,70 @@ mod tests {
         }
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
-        let State::Harvest(h) = &game.state else { panic!("a run starts") };
+        let State::Harvest(h) = &game.state else {
+            panic!("a run starts")
+        };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
     }
 
     #[test]
     fn mod_packs_shows_only_with_packs_and_turns_them_off_from_the_next_start() {
         let mut game = Game::new(1);
-        assert!(!game.settings_list().contains(&menu::Setting::Mods), "no packs, no row");
-        let pack = |file: &str, key: &str, on: bool| data::FoundPack { file: file.into(), key: key.into(), name: key.to_uppercase(), on };
-        game.packs = vec![pack("a.pak", "autumn", true), pack("b.pak", "thanksgiving", false)];
-        game.load(Save { mods_off: crate::ModsOff::parse("thanksgiving,gone"), ..game.save() });
-        let row = game.settings_list().iter().position(|s| *s == menu::Setting::Mods).expect("the row shows");
+        assert!(
+            !game.settings_list().contains(&menu::Setting::Mods),
+            "no packs, no row"
+        );
+        let pack = |file: &str, key: &str, on: bool| data::FoundPack {
+            file: file.into(),
+            key: key.into(),
+            name: key.to_uppercase(),
+            on,
+        };
+        game.packs = vec![
+            pack("a.pak", "autumn", true),
+            pack("b.pak", "thanksgiving", false),
+        ];
+        game.load(Save {
+            mods_off: crate::ModsOff::parse("thanksgiving,gone"),
+            ..game.save()
+        });
+        let row = game
+            .settings_list()
+            .iter()
+            .position(|s| *s == menu::Setting::Mods)
+            .expect("the row shows");
         settings_row(&mut game, row);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Mods);
         game.draw();
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().mods_off.to_text(), "thanksgiving,gone,autumn", "an unknown pack stays off");
+        assert_eq!(
+            game.save().mods_off.to_text(),
+            "thanksgiving,gone,autumn",
+            "an unknown pack stays off"
+        );
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::RIGHT);
         assert_eq!(game.save().mods_off.to_text(), "gone,autumn");
         game.draw();
         let [x, y, ..] = menu::setting_row(0, 7);
-        game.update(&Input { touch: Some([x + 40.0, y + 10.0]), touch_started: true, ..Default::default() }, 0.016);
-        assert_eq!(game.save().mods_off.to_text(), "gone", "a tap turns it back on");
-        assert_eq!(Save::parse(&game.save().to_text()).mods_off, game.save().mods_off);
+        game.update(
+            &Input {
+                touch: Some([x + 40.0, y + 10.0]),
+                touch_started: true,
+                ..Default::default()
+            },
+            0.016,
+        );
+        assert_eq!(
+            game.save().mods_off.to_text(),
+            "gone",
+            "a tap turns it back on"
+        );
+        assert_eq!(
+            Save::parse(&game.save().to_text()).mods_off,
+            game.save().mods_off
+        );
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Settings);
     }
@@ -2228,7 +3225,10 @@ mod tests {
     #[test]
     fn game_folder_shows_only_where_the_platform_offers_one_and_asks_it_to_choose() {
         let mut game = Game::new(1);
-        assert!(!game.settings_list().contains(&menu::Setting::Folder), "no folder to choose by default");
+        assert!(
+            !game.settings_list().contains(&menu::Setting::Folder),
+            "no folder to choose by default"
+        );
         game.set_folder("");
         settings_row(&mut game, 8);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Folder);
@@ -2247,13 +3247,19 @@ mod tests {
         press(&mut game, Buttons::START);
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
-        assert!(!game.settings_list().contains(&menu::Setting::Folder), "nor over a run");
+        assert!(
+            !game.settings_list().contains(&menu::Setting::Folder),
+            "nor over a run"
+        );
     }
 
     #[test]
     fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
         let mut game = Game::new(1);
-        game.load(Save { how_to_seen: true, ..game.save() });
+        game.load(Save {
+            how_to_seen: true,
+            ..game.save()
+        });
         press(&mut game, Buttons::A);
         for _ in 0..3 {
             press(&mut game, Buttons::UP);
@@ -2262,10 +3268,16 @@ mod tests {
         press(&mut game, Buttons::RIGHT);
         assert_eq!(game.save().player.as_str(), "", "one look to choose from");
         assert!(game.take_sounds().contains(&Sfx::Miss));
-        game.load(Save { player: save::LookId::new("nobody"), ..game.save() });
+        game.load(Save {
+            player: save::LookId::new("nobody"),
+            ..game.save()
+        });
         game.draw();
         press(&mut game, Buttons::START);
-        assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
+        assert!(
+            matches!(game.state, State::Harvest(_)),
+            "a run with a look that's gone plays as the farmer"
+        );
         game.draw();
     }
 
@@ -2273,11 +3285,34 @@ mod tests {
     fn the_title_walks_each_kind_turned_on_between_the_common_one() {
         let mut game = Game::new(1);
         let names = |g: &Game| g.title_walkers().iter().map(|w| w[0]).collect::<Vec<_>>();
-        assert_eq!(names(&game), [art::SKINNY_SIDE[0], art::KID_SIDE[0], art::SKINNY_SIDE[0], art::BIG_SIDE[0], art::SKINNY_SIDE[0]]);
-        game.load(Save { enemies_off: 0b010, ..game.save() });
-        assert_eq!(names(&game), [art::SKINNY_SIDE[0], art::BIG_SIDE[0], art::SKINNY_SIDE[0]], "a kind turned off stays off the title");
-        game.load(Save { enemies_off: 0b100, ..game.save() });
-        assert_eq!(names(&game), [art::KID_SIDE[0], art::BIG_SIDE[0], art::KID_SIDE[0]], "with the common kind off, the last one on fills in");
+        assert_eq!(
+            names(&game),
+            [
+                art::SKINNY_SIDE[0],
+                art::KID_SIDE[0],
+                art::SKINNY_SIDE[0],
+                art::BIG_SIDE[0],
+                art::SKINNY_SIDE[0]
+            ]
+        );
+        game.load(Save {
+            enemies_off: 0b010,
+            ..game.save()
+        });
+        assert_eq!(
+            names(&game),
+            [art::SKINNY_SIDE[0], art::BIG_SIDE[0], art::SKINNY_SIDE[0]],
+            "a kind turned off stays off the title"
+        );
+        game.load(Save {
+            enemies_off: 0b100,
+            ..game.save()
+        });
+        assert_eq!(
+            names(&game),
+            [art::KID_SIDE[0], art::BIG_SIDE[0], art::KID_SIDE[0]],
+            "with the common kind off, the last one on fills in"
+        );
     }
 
     #[test]
@@ -2288,11 +3323,21 @@ mod tests {
         press(&mut game, Buttons::UP);
         for button in [Buttons::A, Buttons::RIGHT, Buttons::LEFT] {
             press(&mut game, button);
-            assert_eq!((game.page, game.save.map.as_str()), (Page::Setup, ""), "it picks, it doesn't open a page");
+            assert_eq!(
+                (game.page, game.save.map.as_str()),
+                (Page::Setup, ""),
+                "it picks, it doesn't open a page"
+            );
         }
         game.draw();
-        assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
-        assert!(Scene::from_name("bench-corn") == Some(Scene::BenchCorn(harvest::MAP_SIZE)) && Scene::from_name("bench-corn-100x80") == Some(Scene::BenchCorn([100, 80])));
+        assert!(
+            Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80]))
+                && Scene::from_name("bench-1x").is_none()
+        );
+        assert!(
+            Scene::from_name("bench-corn") == Some(Scene::BenchCorn(harvest::MAP_SIZE))
+                && Scene::from_name("bench-corn-100x80") == Some(Scene::BenchCorn([100, 80]))
+        );
         assert!(Scene::from_name("bench-corn-1x").is_none());
     }
 
@@ -2309,12 +3354,26 @@ mod tests {
         });
         assert!(ran);
         let line = line.expect("a bench reports");
-        assert!(line.starts_with("bench: 20x16 tiles, ") && line.ends_with(" props, flow field 0.50 ms"), "{line}");
+        assert!(
+            line.starts_with("bench: 20x16 tiles, ")
+                && line.ends_with(" props, flow field 0.50 ms"),
+            "{line}"
+        );
         assert!(game.bench_report(|_| 0.0).is_none(), "and only once");
     }
 
     fn texts(canvas: &Canvas) -> Vec<String> {
-        canvas.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
+        canvas
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let Shape::Text { text, .. } = s {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -2324,7 +3383,10 @@ mod tests {
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Setup, "Play sets the night up first");
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Title) && game.page == Page::HowTo, "a new save's first Start explains first");
+        assert!(
+            matches!(game.state, State::Title) && game.page == Page::HowTo,
+            "a new save's first Start explains first"
+        );
         assert!(texts(&game.draw().bottom).contains(&"A: Play".to_string()));
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "then plays");
@@ -2333,17 +3395,26 @@ mod tests {
         assert_eq!(game.page, Page::Main, "a night left goes back to the menu");
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Harvest(_)), "not again this session");
+        assert!(
+            matches!(game.state, State::Harvest(_)),
+            "not again this session"
+        );
         let mut next = Game::new(2);
         next.load(Save::parse(&game.save().to_text()));
         press(&mut next, Buttons::A);
         press(&mut next, Buttons::A);
-        assert!(matches!(next.state, State::Harvest(_)), "nor from the saved file");
+        assert!(
+            matches!(next.state, State::Harvest(_)),
+            "nor from the saved file"
+        );
         let mut old = Game::new(3);
         old.load(Save::parse("nights=3\n"));
         press(&mut old, Buttons::A);
         press(&mut old, Buttons::A);
-        assert!(matches!(old.state, State::Harvest(_)), "nor for a save from before it that has played");
+        assert!(
+            matches!(old.state, State::Harvest(_)),
+            "nor for a save from before it that has played"
+        );
     }
 
     #[test]
@@ -2353,26 +3424,53 @@ mod tests {
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::B);
-        assert!(matches!(game.state, State::Title) && game.page == Page::Setup && game.save().how_to_seen, "back on Play's page");
+        assert!(
+            matches!(game.state, State::Title)
+                && game.page == Page::Setup
+                && game.save().how_to_seen,
+            "back on Play's page"
+        );
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)));
     }
 
     #[test]
     fn how_to_play_opens_from_the_title_and_any_button_or_a_tap_closes_it() {
-        for close in [Some(Buttons::A), Some(Buttons::B), Some(Buttons::START), None] {
+        for close in [
+            Some(Buttons::A),
+            Some(Buttons::B),
+            Some(Buttons::START),
+            None,
+        ] {
             let mut game = Game::new(1);
-            game.load(Save { how_to_seen: true, ..Save::default() });
+            game.load(Save {
+                how_to_seen: true,
+                ..Save::default()
+            });
             press(&mut game, Buttons::DOWN);
             press(&mut game, Buttons::A);
             assert_eq!(game.page, Page::HowTo);
             let shown = texts(&game.draw().bottom);
-            assert!(shown.contains(&"How to play".to_string()) && shown.contains(&"B: Back".to_string()), "{shown:?}");
+            assert!(
+                shown.contains(&"How to play".to_string())
+                    && shown.contains(&"B: Back".to_string()),
+                "{shown:?}"
+            );
             match close {
                 Some(b) => press(&mut game, b),
-                None => game.update(&Input { touch: Some([512.0, 300.0]), touch_started: true, ..Default::default() }, 0.016),
+                None => game.update(
+                    &Input {
+                        touch: Some([512.0, 300.0]),
+                        touch_started: true,
+                        ..Default::default()
+                    },
+                    0.016,
+                ),
             }
-            assert!(matches!(game.state, State::Title) && game.page == Page::Main, "{close:?} goes back to the menu, not into a run");
+            assert!(
+                matches!(game.state, State::Title) && game.page == Page::Main,
+                "{close:?} goes back to the menu, not into a run"
+            );
         }
     }
 
@@ -2389,25 +3487,56 @@ mod tests {
             let mut game = Game::new(1);
             game.set_phone(phone);
             game.set_touch(what != "muOS");
-            game.load(Save { one_screen, touch_grenades, how_to_seen: true, ..Save::default() });
+            game.load(Save {
+                one_screen,
+                touch_grenades,
+                how_to_seen: true,
+                ..Save::default()
+            });
             game.page = Page::HowTo;
             let lines: Vec<&str> = game.how_to_lines().iter().map(|l| l.1).collect();
             let all = lines.join(" ");
             for line in &lines {
                 let wrapped = menu::wrapped(line, menu::HOW_TO_SIZE, menu::HOW_TO_ROOM, 2);
-                assert!(wrapped.iter().all(|l| !menu::fitted(l, menu::HOW_TO_SIZE, menu::HOW_TO_ROOM, menu::HOW_TO_SIZE).0.ends_with("...")), "{what}: {wrapped:?}");
+                assert!(
+                    wrapped.iter().all(|l| !menu::fitted(
+                        l,
+                        menu::HOW_TO_SIZE,
+                        menu::HOW_TO_ROOM,
+                        menu::HOW_TO_SIZE
+                    )
+                    .0
+                    .ends_with("...")),
+                    "{what}: {wrapped:?}"
+                );
             }
-            assert!(all.contains("hearts") && all.contains("Harvester") && all.contains("farmhouse") && all.contains("last seen"), "{what}: {all}");
+            assert!(
+                all.contains("hearts")
+                    && all.contains("Harvester")
+                    && all.contains("farmhouse")
+                    && all.contains("last seen"),
+                "{what}: {all}"
+            );
             let (pad, l2) = (all.contains("D-pad"), all.contains("L2"));
             match what {
                 "two screens" => assert!(pad && !l2 && all.contains("Tap the map"), "{all}"),
                 "one screen" | "muOS" => assert!(pad && l2 && all.contains("L1"), "{what}: {all}"),
-                _ => assert!(!pad && all.contains("Drag") && !all.contains("R1"), "{what}: {all}"),
+                _ => assert!(
+                    !pad && all.contains("Drag") && !all.contains("R1"),
+                    "{what}: {all}"
+                ),
             }
             let f = game.draw();
-            let shown: Vec<_> = f.phone.map(|p| [p.top, p.bottom].into_iter().flatten().count()).into_iter().collect();
+            let shown: Vec<_> = f
+                .phone
+                .map(|p| [p.top, p.bottom].into_iter().flatten().count())
+                .into_iter()
+                .collect();
             assert!(shown.iter().all(|&n| n >= 1), "{what}: the page shows");
-            assert!(texts(&f.bottom).contains(&"How to play".to_string()), "{what}");
+            assert!(
+                texts(&f.bottom).contains(&"How to play".to_string()),
+                "{what}"
+            );
         }
     }
 
@@ -2429,18 +3558,51 @@ mod tests {
     #[test]
     fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
         let mut game = Game::new(1);
-        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::HARD, dps: 37, ..Default::default() });
-        game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
+        game.save.record(harvest::Run {
+            secs: 125,
+            level: 4,
+            difficulty: Difficulty::HARD,
+            dps: 37,
+            ..Default::default()
+        });
+        game.save.record(harvest::Run {
+            secs: 600,
+            level: 9,
+            won: true,
+            dps: 81,
+            ..Default::default()
+        });
         for _ in 0..3 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
-        let text = |game: &Game| game.draw().bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
-        assert!(text(&game).contains(&"81".to_string()), "Stats shows the best damage a second");
+        let text = |game: &Game| {
+            game.draw()
+                .bottom
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let Shape::Text { text, .. } = s {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            text(&game).contains(&"81".to_string()),
+            "Stats shows the best damage a second"
+        );
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::History);
         let shown = text(&game);
-        let at = |s: &str| shown.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} missing: {shown:?}"));
+        let at = |s: &str| {
+            shown
+                .iter()
+                .position(|t| t == s)
+                .unwrap_or_else(|| panic!("{s} missing: {shown:?}"))
+        };
         assert!(at("Home at dawn") < at("Turned"), "newest first");
         for cell in ["Hard", "2:05", "4", "37", "Easy", "10:00", "9", "81"] {
             at(cell);
@@ -2459,35 +3621,81 @@ mod tests {
         let mut kit = [None; harvest::RUN_KIT];
         kit[0] = Some((pistol as u16, 4));
         kit[1] = Some((crows as u16, 2));
-        game.save.record(harvest::Run { secs: 61, kit, ..Default::default() });
+        game.save.record(harvest::Run {
+            secs: 61,
+            kit,
+            ..Default::default()
+        });
         for k in 0..6 {
-            game.save.record(harvest::Run { secs: 100 + k, ..Default::default() });
+            game.save.record(harvest::Run {
+                secs: 100 + k,
+                ..Default::default()
+            });
         }
         game.page = Page::Stats;
         press(&mut game, Buttons::A);
         let shown = |game: &Game| {
             let f = game.draw();
-            let arts: Vec<crate::art::Art> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
-            let text: Vec<String> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect();
+            let arts: Vec<crate::art::Art> = f
+                .bottom
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let Shape::Art { art, .. } = s {
+                        Some(*art)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let text: Vec<String> = f
+                .bottom
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let Shape::Text { text, .. } = s {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             (arts, text)
         };
         let (arts, text) = shown(&game);
-        assert!(text.contains(&"Page 1 of 2".to_string()) && !text.contains(&"1:01".to_string()), "the oldest run is on page two");
+        assert!(
+            text.contains(&"Page 1 of 2".to_string()) && !text.contains(&"1:01".to_string()),
+            "the oldest run is on page two"
+        );
         assert!(!arts.contains(&harvest::powerup_icon(pistol)));
         press(&mut game, Buttons::RIGHT);
         let (arts, text) = shown(&game);
         assert!(text.contains(&"1:01".to_string()) && text.contains(&"Page 2 of 2".to_string()));
-        assert!(arts.contains(&harvest::powerup_icon(pistol)) && arts.contains(&harvest::powerup_icon(crows)), "its powerups as icons");
-        assert!(text.contains(&"4".to_string()) && text.contains(&"2".to_string()), "at their levels");
+        assert!(
+            arts.contains(&harvest::powerup_icon(pistol))
+                && arts.contains(&harvest::powerup_icon(crows)),
+            "its powerups as icons"
+        );
+        assert!(
+            text.contains(&"4".to_string()) && text.contains(&"2".to_string()),
+            "at their levels"
+        );
         press(&mut game, Buttons::RIGHT);
-        assert!(shown(&game).1.contains(&"Page 1 of 2".to_string()), "and round again");
+        assert!(
+            shown(&game).1.contains(&"Page 1 of 2".to_string()),
+            "and round again"
+        );
     }
 
     #[test]
-        fn r2_takes_one_screenshot_and_flashes_after_it() {
+    fn r2_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R2);
-        assert_eq!(game.take_screenshot(), None, "a platform that saves no screenshots takes none");
+        assert_eq!(
+            game.take_screenshot(),
+            None,
+            "a platform that saves no screenshots takes none"
+        );
         game.set_captures(true);
         press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), Some(Capture::Screens));
@@ -2497,7 +3705,11 @@ mod tests {
         assert_eq!(game.take_screenshot(), None, "R1 no longer takes one");
         game.open(Scene::Hardware);
         press(&mut game, Buttons::R2);
-        assert_eq!(game.take_screenshot(), None, "the hardware check keeps R2 for the motor");
+        assert_eq!(
+            game.take_screenshot(),
+            None,
+            "the hardware check keeps R2 for the motor"
+        );
     }
 
     #[test]
@@ -2506,14 +3718,30 @@ mod tests {
             let mut game = Game::new(1);
             game.set_captures(true);
             game.open(Scene::Harvest);
-            let State::Harvest(h) = &mut game.state else { panic!() };
+            let State::Harvest(h) = &mut game.state else {
+                panic!()
+            };
             h.set_one_screen(one);
             press(&mut game, Buttons::R2);
-            assert_eq!(game.take_screenshot(), Some(Capture::Screens), "one screen: {one}");
-            game.update(&Input { held: Buttons::R1, pressed: Buttons::R1, ..Default::default() }, 0.016);
+            assert_eq!(
+                game.take_screenshot(),
+                Some(Capture::Screens),
+                "one screen: {one}"
+            );
+            game.update(
+                &Input {
+                    held: Buttons::R1,
+                    pressed: Buttons::R1,
+                    ..Default::default()
+                },
+                0.016,
+            );
             game.update(&Input::default(), 0.016);
             assert!(game.take_screenshot().is_none(), "one screen: {one}");
-            assert!(matches!(&game.state, State::Harvest(h) if h.grenades_in_the_air() == 1), "one screen: {one}: R1 threw");
+            assert!(
+                matches!(&game.state, State::Harvest(h) if h.grenades_in_the_air() == 1),
+                "one screen: {one}: R1 threw"
+            );
             let night = |g: &Game| match &g.state {
                 State::Harvest(h) => h.night_t(),
                 _ => f32::NAN,
@@ -2521,9 +3749,18 @@ mod tests {
             for held in [Buttons::L1, Buttons::R2] {
                 let before = night(&game);
                 for _ in 0..90 {
-                    game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+                    game.update(
+                        &Input {
+                            held,
+                            ..Default::default()
+                        },
+                        1.0 / 60.0,
+                    );
                 }
-                assert!(night(&game) > before + 1.0, "one screen: {one}: holding {held:?} never pauses the night");
+                assert!(
+                    night(&game) > before + 1.0,
+                    "one screen: {one}: holding {held:?} never pauses the night"
+                );
             }
         }
     }
@@ -2542,13 +3779,37 @@ mod tests {
     #[test]
     fn hovering_a_title_row_selects_it_once_and_the_wheel_steps_rows() {
         let mut game = Game::new(1);
-        let mid = |i: usize| { let [x, y, w, h] = menu::main_row(i); [x + w / 2.0, y + h / 2.0] };
-        game.update(&Input { hover: Some(mid(2)), ..Default::default() }, 1.0 / 60.0);
+        let mid = |i: usize| {
+            let [x, y, w, h] = menu::main_row(i);
+            [x + w / 2.0, y + h / 2.0]
+        };
+        game.update(
+            &Input {
+                hover: Some(mid(2)),
+                ..Default::default()
+            },
+            1.0 / 60.0,
+        );
         assert_eq!(game.row, 2);
         press(&mut game, Buttons::UP);
-        game.update(&Input { hover: Some(mid(2)), ..Default::default() }, 1.0 / 60.0);
-        assert_eq!(game.row, 1, "a pointer that stays put leaves the keys' choice alone");
-        game.update(&Input { wheel: -1.0, ..Default::default() }, 1.0 / 60.0);
+        game.update(
+            &Input {
+                hover: Some(mid(2)),
+                ..Default::default()
+            },
+            1.0 / 60.0,
+        );
+        assert_eq!(
+            game.row, 1,
+            "a pointer that stays put leaves the keys' choice alone"
+        );
+        game.update(
+            &Input {
+                wheel: -1.0,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+        );
         assert_eq!(game.row, 2);
     }
 
@@ -2558,7 +3819,10 @@ mod tests {
         game.set_pad_family(PadFamily::Keyboard);
         assert_eq!(pad::hint("{R1}"), "Space");
         game.mouse_used();
-        assert_eq!((pad::hint("{R1}"), pad::hint("{L2}"), pad::hint("{B}")), ("Click".into(), "Right-click".into(), "R".into()));
+        assert_eq!(
+            (pad::hint("{R1}"), pad::hint("{L2}"), pad::hint("{B}")),
+            ("Click".into(), "Right-click".into(), "R".into())
+        );
         pad::set_mouse(false);
         game.set_pad_family(PadFamily::Nintendo);
     }
@@ -2589,12 +3853,21 @@ mod tests {
         let mut game = in_photo_mode(true);
         game.save.fps = true;
         press(&mut game, Buttons::VOL_UP);
-        assert!(!game.draw().top.shapes.is_empty(), "guides, volume and frame rate show while setting up");
+        assert!(
+            !game.draw().top.shapes.is_empty(),
+            "guides, volume and frame rate show while setting up"
+        );
         press(&mut game, Buttons::R1);
         let frame = game.draw();
-        assert!(frame.top.cards.is_some() && frame.top.shapes.is_empty(), "the capture is the scene alone");
+        assert!(
+            frame.top.cards.is_some() && frame.top.shapes.is_empty(),
+            "the capture is the scene alone"
+        );
         assert_eq!(game.take_screenshot(), Some(Capture::Photo));
-        assert!(!game.draw().top.shapes.is_empty(), "and the guides come back after it");
+        assert!(
+            !game.draw().top.shapes.is_empty(),
+            "and the guides come back after it"
+        );
     }
 
     #[test]
@@ -2602,21 +3875,48 @@ mod tests {
         let size = [2400.0, 1080.0];
         let mut game = in_photo_mode(true);
         game.set_phone(Some(size));
-        let (run, photo) = (touch::layout(size, true, true, false), touch::layout(size, true, true, true));
+        let (run, photo) = (
+            touch::layout(size, true, true, false),
+            touch::layout(size, true, true, true),
+        );
         let finger = |at: [f32; 2]| {
             let mut touches = [None; MAX_TOUCHES];
             touches[0] = Some(at);
-            Input { touches, ..Default::default() }
+            Input {
+                touches,
+                ..Default::default()
+            }
         };
         let middle = |[x, y, w, h]: touch::Rect| [x + w / 2.0, y + h / 2.0];
         let tap = |game: &mut Game, at: [f32; 2]| {
             game.update(&finger(at), 0.016);
             game.update(&Input::default(), 0.016);
         };
-        let help = |game: &Game| game.draw().top.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n");
+        let help = |game: &Game| {
+            game.draw()
+                .top
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let Shape::Text { text, .. } = s {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         tap(&mut game, middle(run.key(Buttons::B).unwrap()));
-        assert!(game.in_photo(), "where Turn around was leaves photo mode no more");
-        assert!(help(&game).contains("Setting: choose") && !help(&game).contains("L2"), "the guides name the keys: {}", help(&game));
+        assert!(
+            game.in_photo(),
+            "where Turn around was leaves photo mode no more"
+        );
+        assert!(
+            help(&game).contains("Setting: choose") && !help(&game).contains("L2"),
+            "the guides name the keys: {}",
+            help(&game)
+        );
         tap(&mut game, middle(photo.key(Buttons::L2).unwrap()));
         tap(&mut game, middle(photo.key(Buttons::R2).unwrap()));
         assert!(help(&game).contains("[Fog: Thick]"), "{}", help(&game));
@@ -2642,10 +3942,20 @@ mod tests {
             game.update(&finger([stick[0] + size[1] * 0.2, stick[1]]), 0.016);
         }
         game.update(&Input::default(), 0.016);
-        assert!(!help(&game).contains("[Place: ahead]"), "the stick moves the cross");
+        assert!(
+            !help(&game).contains("[Place: ahead]"),
+            "the stick moves the cross"
+        );
         tap(&mut game, middle(photo.key(Buttons::X).unwrap()));
-        assert!(help(&game).contains("[Place: ahead]"), "Reset puts it back: {}", help(&game));
-        assert!(game.in_photo() && game.take_screenshot().is_none(), "and none of them takes a photo");
+        assert!(
+            help(&game).contains("[Place: ahead]"),
+            "Reset puts it back: {}",
+            help(&game)
+        );
+        assert!(
+            game.in_photo() && game.take_screenshot().is_none(),
+            "and none of them takes a photo"
+        );
         tap(&mut game, middle(photo.key(Buttons::B).unwrap()));
         assert!(!game.in_photo(), "Back leaves");
     }
@@ -2662,7 +3972,12 @@ mod tests {
 
     #[test]
     fn plays_page_keeps_its_rows_on_the_screen_that_shows_on_every_layout() {
-        let layouts: [(&str, Option<[f32; 2]>, bool, bool); 4] = [("two screens", None, true, true), ("phone, touch", Some([2400.0, 1080.0]), true, true), ("muOS", Some([640.0, 480.0]), false, false), ("square", Some([720.0, 720.0]), false, false)];
+        let layouts: [(&str, Option<[f32; 2]>, bool, bool); 4] = [
+            ("two screens", None, true, true),
+            ("phone, touch", Some([2400.0, 1080.0]), true, true),
+            ("muOS", Some([640.0, 480.0]), false, false),
+            ("square", Some([720.0, 720.0]), false, false),
+        ];
         for (what, phone, touch, top_shows) in layouts {
             let mut game = Game::new(1);
             game.set_phone(phone);
@@ -2671,37 +3986,88 @@ mod tests {
             assert_eq!(game.page, Page::Setup, "{what}");
             let f = game.draw();
             let bottom = texts(&f.bottom);
-            for want in ["Farmer", "Map: Random farm", Difficulty::EASY.name(), "Start"] {
-                assert!(bottom.iter().any(|t| t == want), "{what}: {want} in {bottom:?}");
+            for want in [
+                "Farmer",
+                "Map: Random farm",
+                Difficulty::EASY.name(),
+                "Start",
+            ] {
+                assert!(
+                    bottom.iter().any(|t| t == want),
+                    "{what}: {want} in {bottom:?}"
+                );
             }
             if let Some(p) = f.phone {
-                assert_eq!((p.top.is_some(), p.bottom.is_some()), (top_shows, true), "{what}");
+                assert_eq!(
+                    (p.top.is_some(), p.bottom.is_some()),
+                    (top_shows, true),
+                    "{what}"
+                );
             }
-            assert!(texts(&f.top).iter().any(|t| t == "Farmer"), "{what}: the card large on top");
+            assert!(
+                texts(&f.top).iter().any(|t| t == "Farmer"),
+                "{what}: the card large on top"
+            );
         }
     }
 
     #[test]
     fn plays_page_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
-        game.load(Save { how_to_seen: true, ..Save::default() });
-        assert_eq!(game.save().difficulty, Difficulty::EASY, "a first run starts on Easy");
+        game.load(Save {
+            how_to_seen: true,
+            ..Save::default()
+        });
+        assert_eq!(
+            game.save().difficulty,
+            Difficulty::EASY,
+            "a first run starts on Easy"
+        );
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::LEFT);
-        assert_eq!(game.save().difficulty, Difficulty::EASY, "Left on Start changes nothing");
+        assert_eq!(
+            game.save().difficulty,
+            Difficulty::EASY,
+            "Left on Start changes nothing"
+        );
         press(&mut game, Buttons::UP);
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
-        assert_eq!(game.save().difficulty, Difficulty::STROLL, "it stops at the end");
-        let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, 520.0]), touch_started: true, ..Default::default() }, 0.016);
+        assert_eq!(
+            game.save().difficulty,
+            Difficulty::STROLL,
+            "it stops at the end"
+        );
+        let tap = |game: &mut Game, x: f32| {
+            game.update(
+                &Input {
+                    touch: Some([x, 520.0]),
+                    touch_started: true,
+                    ..Default::default()
+                },
+                0.016,
+            )
+        };
         for _ in 0..3 {
             tap(&mut game, SCREEN_W - 80.0);
         }
         assert_eq!(game.save().difficulty, Difficulty::HARD);
         tap(&mut game, SCREEN_W / 2.0);
-        assert!(matches!(game.state, State::Title), "a tap on the row doesn't start a run");
-        assert!(texts(&game.draw().bottom).join(" ").contains(Difficulty::HARD.blurb()), "the row says what the difficulty means");
+        assert!(
+            matches!(game.state, State::Title),
+            "a tap on the row doesn't start a run"
+        );
+        assert!(
+            texts(&game.draw().bottom)
+                .join(" ")
+                .contains(Difficulty::HARD.blurb()),
+            "the row says what the difficulty means"
+        );
         press(&mut game, Buttons::START);
-        assert!(game.summary().starts_with("harvest hard "), "{}", game.summary());
+        assert!(
+            game.summary().starts_with("harvest hard "),
+            "{}",
+            game.summary()
+        );
     }
 }

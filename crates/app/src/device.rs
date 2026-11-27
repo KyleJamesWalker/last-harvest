@@ -22,14 +22,20 @@ const SPEAKER_SINK: &str = "alsa_output.1.stereo-fallback";
 const HEADPHONE_SINK: &str = "alsa_output.0.HiFi__Speaker__sink";
 const WAKE_ALARM: &str = "/sys/class/rtc/rtc0/wakealarm";
 /// Top screen first: `backlight1` lights the top panel and `backlight` the bottom one.
-const BACKLIGHTS: [&str; 2] = ["/sys/class/backlight/backlight1", "/sys/class/backlight/backlight"];
+const BACKLIGHTS: [&str; 2] = [
+    "/sys/class/backlight/backlight1",
+    "/sys/class/backlight/backlight",
+];
 const BACKLIGHT_MIN: f32 = 8.0;
 const WORK_LED: &str = "/sys/class/anbernic_misc/work_led";
 const LOW_LED: &str = "/sys/class/anbernic_misc/lowpwr_led";
 /// The stock menu sets this to 1 when it launches a port, and Weston then delivers no touches.
 const TOUCH_CTRL: &str = "/sys/class/anbernic_misc/tpctrl";
 /// The startup scripts select the cw2015 fuel gauge when present; the PMU's own estimate disagrees with it.
-const BATTERIES: [&str; 2] = ["/sys/class/power_supply/cw2015-battery", "/sys/class/power_supply/battery"];
+const BATTERIES: [&str; 2] = [
+    "/sys/class/power_supply/cw2015-battery",
+    "/sys/class/power_supply/battery",
+];
 const STICK_MAX: f32 = 4096.0;
 
 #[derive(Clone, Copy, Default)]
@@ -62,7 +68,9 @@ impl Device {
         let log = std::env::var_os("LAST_HARVEST_LOG_INPUT").is_some();
         let pad = Arc::new(Mutex::new(Pad::default()));
         let mut found = false;
-        for (path, mut dev) in evdev::enumerate().filter(|(_, d)| matches!(d.name(), Some(PAD_NAME | BACK_NAME | POWER_NAME))) {
+        for (path, mut dev) in evdev::enumerate()
+            .filter(|(_, d)| matches!(d.name(), Some(PAD_NAME | BACK_NAME | POWER_NAME)))
+        {
             log!("input: {} {:?}", path.display(), dev.name());
             found = true;
             let p = pad.clone();
@@ -103,13 +111,25 @@ impl Device {
             });
         }
         let hall_open = fs::read_to_string(HALL).ok();
-        let original_brightness = BACKLIGHTS.map(|b| fs::read_to_string(format!("{b}/brightness")).ok());
+        let original_brightness =
+            BACKLIGHTS.map(|b| fs::read_to_string(format!("{b}/brightness")).ok());
         let original_touch = read_trim(TOUCH_CTRL);
         if original_touch.as_deref().is_some_and(|t| t != "0") {
-            log!("touch: tpctrl was {}, setting 0", original_touch.as_deref().unwrap_or_default());
+            log!(
+                "touch: tpctrl was {}, setting 0",
+                original_touch.as_deref().unwrap_or_default()
+            );
             write(TOUCH_CTRL, "0");
         }
-        found.then_some(Self { pad, headphones, hall_open, rumbling: false, original_brightness, original_touch, written: None })
+        found.then_some(Self {
+            pad,
+            headphones,
+            hall_open,
+            rumbling: false,
+            original_brightness,
+            original_touch,
+            written: None,
+        })
     }
 
     pub fn held(&self) -> Buttons {
@@ -136,7 +156,8 @@ impl Device {
     pub fn suspend(&mut self, wake_after: Option<u32>) {
         self.set_rumble(false);
         if let Some(secs) = wake_after {
-            let armed = fs::write(WAKE_ALARM, "0").and_then(|_| fs::write(WAKE_ALARM, format!("+{secs}")));
+            let armed =
+                fs::write(WAKE_ALARM, "0").and_then(|_| fs::write(WAKE_ALARM, format!("+{secs}")));
             if let Err(e) = armed {
                 log!("suspend: wake alarm: {e}");
                 return;
@@ -154,22 +175,35 @@ impl Device {
     }
 
     pub fn battery(&self) -> Option<Battery> {
-        let dir = BATTERIES.iter().find(|d| fs::metadata(format!("{d}/capacity")).is_ok())?;
+        let dir = BATTERIES
+            .iter()
+            .find(|d| fs::metadata(format!("{d}/capacity")).is_ok())?;
         let percent = read_trim(&format!("{dir}/capacity"))?.parse().ok()?;
-        let charging = read_trim(&format!("{dir}/status")).is_some_and(|s| s == "Charging" || s == "Full");
+        let charging =
+            read_trim(&format!("{dir}/status")).is_some_and(|s| s == "Charging" || s == "Full");
         Some(Battery { percent, charging })
     }
 
     /// Temperature in Celsius of the thermal zone whose `type` is `kind`.
     pub fn temperature(&self, kind: &str) -> Option<f32> {
-        let zone = fs::read_dir("/sys/class/thermal").ok()?.flatten().find(|z| read_trim(&format!("{}/type", z.path().display())).as_deref() == Some(kind))?;
-        read_trim(&format!("{}/temp", zone.path().display()))?.parse::<f32>().ok().map(|m| m / 1000.0)
+        let zone = fs::read_dir("/sys/class/thermal")
+            .ok()?
+            .flatten()
+            .find(|z| {
+                read_trim(&format!("{}/type", z.path().display())).as_deref() == Some(kind)
+            })?;
+        read_trim(&format!("{}/temp", zone.path().display()))?
+            .parse::<f32>()
+            .ok()
+            .map(|m| m / 1000.0)
     }
 
     pub fn apply(&mut self, out: &Outputs) {
         self.set_rumble(out.rumble);
         let want = Written {
-            brightness: out.brightness.map(|b| (b * 255.0).round().max(BACKLIGHT_MIN) as u32),
+            brightness: out
+                .brightness
+                .map(|b| (b * 255.0).round().max(BACKLIGHT_MIN) as u32),
             screens_on: out.screens_on,
             leds: [out.work_led, out.low_led],
         };
@@ -177,11 +211,17 @@ impl Device {
         let changed = |f: fn(&Written) -> bool| old.as_ref().is_none_or(|o| f(o) != f(&want));
         for (i, path) in BACKLIGHTS.iter().enumerate() {
             if old.is_none_or(|o| o.brightness[i] != want.brightness[i]) {
-                write(&format!("{path}/brightness"), &want.brightness[i].to_string());
+                write(
+                    &format!("{path}/brightness"),
+                    &want.brightness[i].to_string(),
+                );
             }
             if old.is_none_or(|o| o.screens_on[i] != want.screens_on[i]) {
                 // 4 is FB_BLANK_POWERDOWN.
-                write(&format!("{path}/bl_power"), if want.screens_on[i] { "0" } else { "4" });
+                write(
+                    &format!("{path}/bl_power"),
+                    if want.screens_on[i] { "0" } else { "4" },
+                );
             }
         }
         if changed(|w| w.leds[0]) {
@@ -220,7 +260,12 @@ impl Drop for Device {
 }
 
 fn jack_state_path() -> Option<std::path::PathBuf> {
-    fs::read_dir("/sys/class/extcon").ok()?.flatten().map(|e| e.path()).find(|p| read_trim(&format!("{}/name", p.display())).as_deref() == Some(JACK_EXTCON)).map(|p| p.join("state"))
+    fs::read_dir("/sys/class/extcon")
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| read_trim(&format!("{}/name", p.display())).as_deref() == Some(JACK_EXTCON))
+        .map(|p| p.join("state"))
 }
 
 /// Makes `sink` the default and moves every playing stream onto it, since a new default only affects new streams.
@@ -230,8 +275,13 @@ fn route_audio(sink: &str) {
         log!("audio route: {e}");
         return;
     }
-    let Ok(out) = pactl(&["list", "short", "sink-inputs"]) else { return };
-    for id in String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.split_whitespace().next()) {
+    let Ok(out) = pactl(&["list", "short", "sink-inputs"]) else {
+        return;
+    };
+    for id in String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+    {
         pactl(&["move-sink-input", id, sink]).ok();
     }
 }

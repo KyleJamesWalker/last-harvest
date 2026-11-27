@@ -238,11 +238,16 @@ impl CardBatch {
         }
         for (i, card) in cards.iter().enumerate().filter(|(_, c)| c.alpha < 1.0) {
             let [a, b, c, d] = card.corners;
-            self.order.push((((a + b + c + d) * 0.25).distance_squared(eye), i as u32));
+            self.order
+                .push((((a + b + c + d) * 0.25).distance_squared(eye), i as u32));
         }
         self.order.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
         for &(_, i) in &self.order {
-            push_card(&mut self.clear, &cards[i as usize], Some(cards[i as usize].alpha));
+            push_card(
+                &mut self.clear,
+                &cards[i as usize],
+                Some(cards[i as usize].alpha),
+            );
         }
     }
 }
@@ -254,7 +259,9 @@ fn push_card(out: &mut Vec<f32>, card: &Card, alpha: Option<f32>) {
     let [r, g, b] = card.tint;
     for (corner, uv) in card.corners.iter().zip(uvs) {
         let p = corner.to_array();
-        out.extend_from_slice(&[p[0], p[1], p[2], uv[0], uv[1], n[0], n[1], n[2], r, g, b, card.glow]);
+        out.extend_from_slice(&[
+            p[0], p[1], p[2], uv[0], uv[1], n[0], n[1], n[2], r, g, b, card.glow,
+        ]);
         out.extend(alpha);
     }
 }
@@ -320,7 +327,10 @@ impl CardProgram {
             gl.uniform_3_f32_slice(self.flash_pos.as_ref(), &pos);
             gl.uniform_3_f32_slice(self.flash_color.as_ref(), &color);
             gl.uniform_1_f32_slice(self.flash_range.as_ref(), &range);
-            gl.uniform_1_i32(self.flash_count.as_ref(), scene.flashes.len().min(MAX_FLASHES) as i32);
+            gl.uniform_1_i32(
+                self.flash_count.as_ref(),
+                scene.flashes.len().min(MAX_FLASHES) as i32,
+            );
             gl.uniform_3_f32_slice(self.ambient.as_ref(), &scene.ambient);
             gl.uniform_1_f32(self.saturation.as_ref(), scene.saturation);
             gl.uniform_3_f32_slice(self.fog.as_ref(), &scene.fog);
@@ -330,11 +340,19 @@ impl CardProgram {
 }
 
 /// `headers` go before the vertex and the fragment shader's sources.
-unsafe fn link(gl: &glow::Context, headers: [&str; 2], vert: &str, frag: &str) -> Result<glow::Program, String> {
+unsafe fn link(
+    gl: &glow::Context,
+    headers: [&str; 2],
+    vert: &str,
+    frag: &str,
+) -> Result<glow::Program, String> {
     unsafe {
         let program = gl.create_program()?;
         let mut shaders = Vec::new();
-        for ((kind, src), header) in [(glow::VERTEX_SHADER, vert), (glow::FRAGMENT_SHADER, frag)].into_iter().zip(headers) {
+        for ((kind, src), header) in [(glow::VERTEX_SHADER, vert), (glow::FRAGMENT_SHADER, frag)]
+            .into_iter()
+            .zip(headers)
+        {
             let shader = gl.create_shader(kind)?;
             gl.shader_source(shader, &format!("{header}{src}"));
             gl.compile_shader(shader);
@@ -361,13 +379,33 @@ impl Renderer {
         // World positions are in tiles, which mediump can't place finely across a big map.
         let [vert, frag] = match profile {
             Profile::Desktop => ["#version 330 core\n"; 2],
-            Profile::Gles => ["#version 300 es\nprecision highp float;\n", "#version 300 es\nprecision mediump float;\n"],
+            Profile::Gles => [
+                "#version 300 es\nprecision highp float;\n",
+                "#version 300 es\nprecision mediump float;\n",
+            ],
         };
         unsafe {
             let program = link(gl, [vert, frag], VERT, FRAG)?;
-            let card = |defines: &str| link(gl, [&format!("{vert}{defines}"), &format!("{frag}{defines}")], CARD_VERT, CARD_FRAG).map(|p| CardProgram::new(gl, p));
-            let card_programs = [[card("")?, card("#define FLASH\n")?], [card("#define TINT\n")?, card("#define TINT\n#define FLASH\n")?]];
-            let clear_programs = [card("#define TINT\n#define ALPHA\n")?, card("#define TINT\n#define ALPHA\n#define FLASH\n")?];
+            let card = |defines: &str| {
+                link(
+                    gl,
+                    [&format!("{vert}{defines}"), &format!("{frag}{defines}")],
+                    CARD_VERT,
+                    CARD_FRAG,
+                )
+                .map(|p| CardProgram::new(gl, p))
+            };
+            let card_programs = [
+                [card("")?, card("#define FLASH\n")?],
+                [
+                    card("#define TINT\n")?,
+                    card("#define TINT\n#define FLASH\n")?,
+                ],
+            ];
+            let clear_programs = [
+                card("#define TINT\n#define ALPHA\n")?,
+                card("#define TINT\n#define ALPHA\n#define FLASH\n")?,
+            ];
             let card_vao = gl.create_vertex_array()?;
             let card_vbo = gl.create_buffer()?;
             let card_ibo = gl.create_buffer()?;
@@ -376,7 +414,14 @@ impl Renderer {
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(card_ibo));
             for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5), (3, 4, 8)] {
                 gl.enable_vertex_attrib_array(loc);
-                gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CARD_FLOATS * 4) as i32, offset * 4);
+                gl.vertex_attrib_pointer_f32(
+                    loc,
+                    size,
+                    glow::FLOAT,
+                    false,
+                    (CARD_FLOATS * 4) as i32,
+                    offset * 4,
+                );
             }
             let clear_vao = gl.create_vertex_array()?;
             let clear_vbo = gl.create_buffer()?;
@@ -385,7 +430,14 @@ impl Renderer {
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(card_ibo));
             for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5), (3, 4, 8), (4, 1, 12)] {
                 gl.enable_vertex_attrib_array(loc);
-                gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CLEAR_FLOATS * 4) as i32, offset * 4);
+                gl.vertex_attrib_pointer_f32(
+                    loc,
+                    size,
+                    glow::FLOAT,
+                    false,
+                    (CLEAR_FLOATS * 4) as i32,
+                    offset * 4,
+                );
             }
 
             let vao = gl.create_vertex_array()?;
@@ -402,17 +454,58 @@ impl Renderer {
             let texture = gl.create_texture()?;
             gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             let size = atlas::SIZE as i32;
-            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, size, size, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(&atlas.rgba)));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                size,
+                size,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(&atlas.rgba)),
+            );
             gl.generate_mipmap(glow::TEXTURE_2D);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR_MIPMAP_LINEAR as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR_MIPMAP_LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
             let art = gl.create_texture()?;
             gl.bind_texture(glow::TEXTURE_2D, Some(art));
             let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);
-            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, aw, ah, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(art::pixels())));
-            for (param, value) in [(glow::TEXTURE_MIN_FILTER, glow::NEAREST), (glow::TEXTURE_MAG_FILTER, glow::NEAREST), (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE), (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE)] {
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                aw,
+                ah,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(art::pixels())),
+            );
+            for (param, value) in [
+                (glow::TEXTURE_MIN_FILTER, glow::NEAREST),
+                (glow::TEXTURE_MAG_FILTER, glow::NEAREST),
+                (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
+                (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
+            ] {
                 gl.tex_parameter_i32(glow::TEXTURE_2D, param, value as i32);
             }
             gl.use_program(Some(program));
@@ -420,7 +513,26 @@ impl Renderer {
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), clip: None, atlas, texture, art, card_programs, card_vao, card_vbo, card_ibo, card_capacity: 0, clear_programs, clear_vao, clear_vbo, batch: CardBatch::default() })
+            Ok(Self {
+                program,
+                vao,
+                vbo,
+                u_size,
+                verts: Vec::new(),
+                clip: None,
+                atlas,
+                texture,
+                art,
+                card_programs,
+                card_vao,
+                card_vbo,
+                card_ibo,
+                card_capacity: 0,
+                clear_programs,
+                clear_vao,
+                clear_vbo,
+                batch: CardBatch::default(),
+            })
         }
     }
 
@@ -430,7 +542,17 @@ impl Renderer {
         unsafe {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);
-            gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, aw, ah, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
+            gl.tex_sub_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                0,
+                0,
+                aw,
+                ah,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(pixels)),
+            );
         }
     }
 
@@ -444,32 +566,78 @@ impl Renderer {
     pub fn draw_view(&mut self, gl: &glow::Context, canvas: &Canvas, view: [i32; 4]) {
         let size = canvas.size.unwrap_or([SCREEN_W, SCREEN_H]);
         let aspect = view[2].max(1) as f32 / view[3].max(1) as f32;
-        self.paint(gl, canvas, view, split::fit(view, size), split::widen(aspect, SCREEN_W / SCREEN_H));
+        self.paint(
+            gl,
+            canvas,
+            view,
+            split::fit(view, size),
+            split::widen(aspect, SCREEN_W / SCREEN_H),
+        );
     }
 
     /// Clears `view` and draws the 3D scene in it, its clip x and y scaled by `widen`, then the 2D shapes in `flat`.
-    fn paint(&mut self, gl: &glow::Context, canvas: &Canvas, view: [i32; 4], flat: [i32; 4], widen: [f32; 2]) {
+    fn paint(
+        &mut self,
+        gl: &glow::Context,
+        canvas: &Canvas,
+        view: [i32; 4],
+        flat: [i32; 4],
+        widen: [f32; 2],
+    ) {
         self.verts.clear();
         self.clip = None;
         for shape in &canvas.shapes {
             match *shape {
                 Shape::Clip { rect } => self.clip = rect,
                 Shape::Rect { x, y, w, h, color } => self.quad(x, y, w, h, color, KIND_RECT),
-                Shape::Circle { x, y, r, color } => self.quad(x - r, y - r, 2.0 * r, 2.0 * r, color, KIND_CIRCLE),
-                Shape::Art { art, x, y, scale, flip, angle, show, color } => {
+                Shape::Circle { x, y, r, color } => {
+                    self.quad(x - r, y - r, 2.0 * r, 2.0 * r, color, KIND_CIRCLE)
+                }
+                Shape::Art {
+                    art,
+                    x,
+                    y,
+                    scale,
+                    flip,
+                    angle,
+                    show,
+                    color,
+                } => {
                     let [ax, ay, aw, ah] = art.rect().map(f32::from);
                     let ah = ah * show;
                     let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
                     // Nearest sampling at a fractional scale can land a hair outside the sprite and pick up its neighbor.
                     let (u0, u1) = ((ax + UV_INSET) / sw, (ax + aw - UV_INSET) / sw);
-                    let uv = [if flip { u1 } else { u0 }, (ay + UV_INSET) / sh, if flip { u0 } else { u1 }, (ay + ah - UV_INSET) / sh];
+                    let uv = [
+                        if flip { u1 } else { u0 },
+                        (ay + UV_INSET) / sh,
+                        if flip { u0 } else { u1 },
+                        (ay + ah - UV_INSET) / sh,
+                    ];
                     let k = scale / art.detail() as f32;
                     let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
                     let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
-                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, [color[0], color[1], color[2], color[3] * art.alpha()], KIND_ART);
+                    self.push_quad(
+                        [
+                            corner(-hw, -hh),
+                            corner(hw, -hh),
+                            corner(hw, hh),
+                            corner(-hw, hh),
+                        ],
+                        uv,
+                        [color[0], color[1], color[2], color[3] * art.alpha()],
+                        KIND_ART,
+                    );
                 }
-                Shape::Text { ref text, x, y, size, color, align } => {
+                Shape::Text {
+                    ref text,
+                    x,
+                    y,
+                    size,
+                    color,
+                    align,
+                } => {
                     for g in self.atlas.layout(text, x, y, size, align) {
                         let [gx, gy, gw, gh] = g.rect;
                         self.textured(gx, gy, gw, gh, g.uv, color);
@@ -485,7 +653,11 @@ impl Renderer {
             gl.scissor(x, y, w, h);
             gl.clear_color(r, g, b, a);
             // A clear color with no alpha leaves what is under the canvas, for an overlay.
-            gl.clear(if a > 0.0 { glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT } else { glow::DEPTH_BUFFER_BIT });
+            gl.clear(if a > 0.0 {
+                glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT
+            } else {
+                glow::DEPTH_BUFFER_BIT
+            });
             gl.disable(glow::SCISSOR_TEST);
             if let Some(cards) = &canvas.cards {
                 self.draw_cards(gl, cards, widened(cards.view_proj.to_cols_array(), widen));
@@ -509,7 +681,11 @@ impl Renderer {
             gl.bind_vertex_array(Some(self.vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.verts), glow::STREAM_DRAW);
-            gl.draw_arrays(glow::TRIANGLES, 0, (self.verts.len() / FLOATS_PER_VERT) as i32);
+            gl.draw_arrays(
+                glow::TRIANGLES,
+                0,
+                (self.verts.len() / FLOATS_PER_VERT) as i32,
+            );
             if cut {
                 gl.disable(glow::SCISSOR_TEST);
             }
@@ -518,7 +694,11 @@ impl Renderer {
 
     fn draw_cards(&mut self, gl: &glow::Context, scene: &CardScene, view_proj: [f32; 16]) {
         self.batch.build(&scene.cards, scene.eye);
-        let (plain, opaque, clear) = (self.batch.plain, self.batch.opaque_cards(), self.batch.clear_cards());
+        let (plain, opaque, clear) = (
+            self.batch.plain,
+            self.batch.opaque_cards(),
+            self.batch.clear_cards(),
+        );
         let flash = !scene.flashes.is_empty() as usize;
         unsafe {
             gl.enable(glow::DEPTH_TEST);
@@ -528,13 +708,23 @@ impl Renderer {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             gl.bind_vertex_array(Some(self.card_vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.card_vbo));
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.batch.opaque), glow::STREAM_DRAW);
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                as_bytes(&self.batch.opaque),
+                glow::STREAM_DRAW,
+            );
             let most = opaque.max(clear);
             if most > self.card_capacity {
                 self.card_capacity = most.next_power_of_two();
-                let indices: Vec<u32> = (0..self.card_capacity as u32).flat_map(|k| [0, 1, 2, 0, 2, 3].map(|i| k * 4 + i)).collect();
+                let indices: Vec<u32> = (0..self.card_capacity as u32)
+                    .flat_map(|k| [0, 1, 2, 0, 2, 3].map(|i| k * 4 + i))
+                    .collect();
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.card_ibo));
-                gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, as_bytes(&indices), glow::STATIC_DRAW);
+                gl.buffer_data_u8_slice(
+                    glow::ELEMENT_ARRAY_BUFFER,
+                    as_bytes(&indices),
+                    glow::STATIC_DRAW,
+                );
             }
             for (tinted, range) in [(0, 0..plain), (1, plain..opaque)] {
                 if range.is_empty() {
@@ -543,7 +733,12 @@ impl Renderer {
                 let p = &self.card_programs[tinted][flash];
                 gl.use_program(Some(p.program));
                 p.set(gl, scene, &view_proj);
-                gl.draw_elements(glow::TRIANGLES, (range.len() * 6) as i32, glow::UNSIGNED_INT, (range.start * 6 * 4) as i32);
+                gl.draw_elements(
+                    glow::TRIANGLES,
+                    (range.len() * 6) as i32,
+                    glow::UNSIGNED_INT,
+                    (range.start * 6 * 4) as i32,
+                );
             }
             if clear > 0 {
                 gl.enable(glow::BLEND);
@@ -551,7 +746,11 @@ impl Renderer {
                 gl.depth_mask(false);
                 gl.bind_vertex_array(Some(self.clear_vao));
                 gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.clear_vbo));
-                gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.batch.clear), glow::STREAM_DRAW);
+                gl.buffer_data_u8_slice(
+                    glow::ARRAY_BUFFER,
+                    as_bytes(&self.batch.clear),
+                    glow::STREAM_DRAW,
+                );
                 let p = &self.clear_programs[flash];
                 gl.use_program(Some(p.program));
                 p.set(gl, scene, &view_proj);
@@ -568,17 +767,31 @@ impl Renderer {
     }
 
     fn textured(&mut self, x: f32, y: f32, w: f32, h: f32, uv: [f32; 4], color: [f32; 4]) {
-        self.push_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], uv, color, KIND_TEXTURE);
+        self.push_quad(
+            [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+            uv,
+            color,
+            KIND_TEXTURE,
+        );
     }
 
     /// Corners run clockwise from top-left; `uv` is (u0, v0, u1, v1) for the same corners.
-    fn push_quad(&mut self, corners: [[f32; 2]; 4], [u0, v0, u1, v1]: [f32; 4], [r, g, b, a]: [f32; 4], kind: f32) {
+    fn push_quad(
+        &mut self,
+        corners: [[f32; 2]; 4],
+        [u0, v0, u1, v1]: [f32; 4],
+        [r, g, b, a]: [f32; 4],
+        kind: f32,
+    ) {
         let local = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
         let uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-        let Some((corners, local, uvs)) = clip_quad(corners, local, uvs, self.clip) else { return };
+        let Some((corners, local, uvs)) = clip_quad(corners, local, uvs, self.clip) else {
+            return;
+        };
         for i in [0, 1, 2, 0, 2, 3] {
             let ([px, py], [lx, ly], [u, v]) = (corners[i], local[i], uvs[i]);
-            self.verts.extend_from_slice(&[px, py, lx, ly, r, g, b, a, kind, u, v]);
+            self.verts
+                .extend_from_slice(&[px, py, lx, ly, r, g, b, a, kind, u, v]);
         }
     }
 }
@@ -596,11 +809,21 @@ type Quad = [[f32; 2]; 4];
 
 /// Cuts a quad to `clip` (x, y, w, h), its shape coordinates and texture coordinates with it; None if nothing is left.
 /// A turned quad is kept whole unless it lies wholly outside.
-fn clip_quad(corners: Quad, local: Quad, uvs: Quad, clip: Option<[f32; 4]>) -> Option<(Quad, Quad, Quad)> {
-    let Some([cx, cy, cw, ch]) = clip else { return Some((corners, local, uvs)) };
+fn clip_quad(
+    corners: Quad,
+    local: Quad,
+    uvs: Quad,
+    clip: Option<[f32; 4]>,
+) -> Option<(Quad, Quad, Quad)> {
+    let Some([cx, cy, cw, ch]) = clip else {
+        return Some((corners, local, uvs));
+    };
     let xs = corners.map(|c| c[0]);
     let ys = corners.map(|c| c[1]);
-    let (lo, hi) = (|v: [f32; 4]| v.into_iter().fold(f32::MAX, f32::min), |v: [f32; 4]| v.into_iter().fold(f32::MIN, f32::max));
+    let (lo, hi) = (
+        |v: [f32; 4]| v.into_iter().fold(f32::MAX, f32::min),
+        |v: [f32; 4]| v.into_iter().fold(f32::MIN, f32::max),
+    );
     if hi(xs) <= cx || lo(xs) >= cx + cw || hi(ys) <= cy || lo(ys) >= cy + ch {
         return None;
     }
@@ -609,14 +832,36 @@ fn clip_quad(corners: Quad, local: Quad, uvs: Quad, clip: Option<[f32; 4]>) -> O
     if !square {
         return Some((corners, local, uvs));
     }
-    let (fx0, fx1) = (((cx - x0) / (x1 - x0)).max(0.0), ((cx + cw - x0) / (x1 - x0)).min(1.0));
-    let (fy0, fy1) = (((cy - y0) / (y3 - y0)).max(0.0), ((cy + ch - y0) / (y3 - y0)).min(1.0));
+    let (fx0, fx1) = (
+        ((cx - x0) / (x1 - x0)).max(0.0),
+        ((cx + cw - x0) / (x1 - x0)).min(1.0),
+    );
+    let (fy0, fy1) = (
+        ((cy - y0) / (y3 - y0)).max(0.0),
+        ((cy + ch - y0) / (y3 - y0)).min(1.0),
+    );
     let at = |q: &Quad, fx: f32, fy: f32| {
-        let top = [q[0][0] + (q[1][0] - q[0][0]) * fx, q[0][1] + (q[1][1] - q[0][1]) * fx];
-        let bottom = [q[3][0] + (q[2][0] - q[3][0]) * fx, q[3][1] + (q[2][1] - q[3][1]) * fx];
-        [top[0] + (bottom[0] - top[0]) * fy, top[1] + (bottom[1] - top[1]) * fy]
+        let top = [
+            q[0][0] + (q[1][0] - q[0][0]) * fx,
+            q[0][1] + (q[1][1] - q[0][1]) * fx,
+        ];
+        let bottom = [
+            q[3][0] + (q[2][0] - q[3][0]) * fx,
+            q[3][1] + (q[2][1] - q[3][1]) * fx,
+        ];
+        [
+            top[0] + (bottom[0] - top[0]) * fy,
+            top[1] + (bottom[1] - top[1]) * fy,
+        ]
     };
-    let cut = |q: &Quad| [at(q, fx0, fy0), at(q, fx1, fy0), at(q, fx1, fy1), at(q, fx0, fy1)];
+    let cut = |q: &Quad| {
+        [
+            at(q, fx0, fy0),
+            at(q, fx1, fy0),
+            at(q, fx1, fy1),
+            at(q, fx0, fy1),
+        ]
+    };
     Some((cut(&corners), cut(&local), cut(&uvs)))
 }
 
@@ -635,8 +880,15 @@ mod tests {
         let corners = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
         let local = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
         let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-        assert_eq!(clip_quad(corners, local, uvs, None), Some((corners, local, uvs)));
-        assert_eq!(clip_quad(corners, local, uvs, Some([20.0, 0.0, 5.0, 5.0])), None, "wholly outside");
+        assert_eq!(
+            clip_quad(corners, local, uvs, None),
+            Some((corners, local, uvs))
+        );
+        assert_eq!(
+            clip_quad(corners, local, uvs, Some([20.0, 0.0, 5.0, 5.0])),
+            None,
+            "wholly outside"
+        );
         let (c, l, u) = clip_quad(corners, local, uvs, Some([5.0, -5.0, 20.0, 10.0])).unwrap();
         assert_eq!(c, [[5.0, 0.0], [10.0, 0.0], [10.0, 5.0], [5.0, 5.0]]);
         assert_eq!(l, [[0.0, -1.0], [1.0, -1.0], [1.0, 0.0], [0.0, 0.0]]);
@@ -645,27 +897,62 @@ mod tests {
 
     #[test]
     fn a_widened_projection_scales_clip_x_and_y_only() {
-        let m = last_harvest_game::scene3d::Mat4::from_cols_array(&[1.5, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.25, 0.5, -1.0, -1.0, 0.0, 0.0, -0.6, 0.0]);
+        let m = last_harvest_game::scene3d::Mat4::from_cols_array(&[
+            1.5, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.25, 0.5, -1.0, -1.0, 0.0, 0.0, -0.6, 0.0,
+        ]);
         let p = last_harvest_game::scene3d::Vec3::new(2.0, 1.0, -5.0).extend(1.0);
         let at = |cols: [f32; 16]| last_harvest_game::scene3d::Mat4::from_cols_array(&cols) * p;
-        let (plain, wide) = (at(m.to_cols_array()), at(widened(m.to_cols_array(), [0.5, 0.25])));
-        assert_eq!([wide.x, wide.y, wide.z, wide.w], [plain.x * 0.5, plain.y * 0.25, plain.z, plain.w]);
+        let (plain, wide) = (
+            at(m.to_cols_array()),
+            at(widened(m.to_cols_array(), [0.5, 0.25])),
+        );
+        assert_eq!(
+            [wide.x, wide.y, wide.z, wide.w],
+            [plain.x * 0.5, plain.y * 0.25, plain.z, plain.w]
+        );
     }
 
     fn card_at(z: f32, alpha: f32) -> Card {
         let c = |x: f32, y: f32| Vec3::new(x, y, z);
-        Card { alpha, ..Card::new([c(0.0, 1.0), c(1.0, 1.0), c(1.0, 0.0), c(0.0, 0.0)], [0.0, 0.0, 1.0, 1.0], Vec3::Z) }
+        Card {
+            alpha,
+            ..Card::new(
+                [c(0.0, 1.0), c(1.0, 1.0), c(1.0, 0.0), c(0.0, 0.0)],
+                [0.0, 0.0, 1.0, 1.0],
+                Vec3::Z,
+            )
+        }
     }
 
     #[test]
     fn see_through_cards_draw_after_the_opaque_ones_farthest_first() {
-        let cards = [card_at(-2.0, 0.5), card_at(-1.0, 1.0), card_at(-9.0, 0.8), Card { tint: [0.5; 3], ..card_at(-3.0, 1.0) }, card_at(-5.0, 0.3)];
+        let cards = [
+            card_at(-2.0, 0.5),
+            card_at(-1.0, 1.0),
+            card_at(-9.0, 0.8),
+            Card {
+                tint: [0.5; 3],
+                ..card_at(-3.0, 1.0)
+            },
+            card_at(-5.0, 0.3),
+        ];
         let mut batch = CardBatch::default();
         batch.build(&cards, Vec3::ZERO);
-        assert_eq!((batch.plain, batch.opaque_cards(), batch.clear_cards()), (1, 2, 3));
+        assert_eq!(
+            (batch.plain, batch.opaque_cards(), batch.clear_cards()),
+            (1, 2, 3)
+        );
         let z_of = |verts: &[f32], floats: usize, k: usize| verts[k * 4 * floats + 2];
-        assert_eq!([0, 1].map(|k| z_of(&batch.opaque, CARD_FLOATS, k)), [-1.0, -3.0], "plain, then tinted");
-        assert_eq!([0, 1, 2].map(|k| z_of(&batch.clear, CLEAR_FLOATS, k)), [-9.0, -5.0, -2.0], "back to front");
+        assert_eq!(
+            [0, 1].map(|k| z_of(&batch.opaque, CARD_FLOATS, k)),
+            [-1.0, -3.0],
+            "plain, then tinted"
+        );
+        assert_eq!(
+            [0, 1, 2].map(|k| z_of(&batch.clear, CLEAR_FLOATS, k)),
+            [-9.0, -5.0, -2.0],
+            "back to front"
+        );
         let alpha_of = |k: usize| batch.clear[k * 4 * CLEAR_FLOATS + CARD_FLOATS];
         assert_eq!([0, 1, 2].map(alpha_of), [0.8, 0.3, 0.5]);
     }
@@ -678,6 +965,10 @@ mod tests {
         assert_eq!((batch.opaque_cards(), batch.clear_cards()), (50, 0));
         let room = (batch.opaque.capacity(), batch.opaque.as_ptr());
         batch.build(&cards, Vec3::ZERO);
-        assert_eq!((batch.opaque.capacity(), batch.opaque.as_ptr()), room, "the next frame builds in the same room");
+        assert_eq!(
+            (batch.opaque.capacity(), batch.opaque.as_ptr()),
+            room,
+            "the next frame builds in the same room"
+        );
     }
 }

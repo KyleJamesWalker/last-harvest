@@ -5,8 +5,8 @@
 use futures_util::StreamExt;
 use last_harvest_net::{IceConfig, IceFetch, IceServer, PeerSocket, RELIABLE, UNRELIABLE};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 const DEFAULT_RELAY: &str = "wss://lh-relay.vps.pocketsquirrel.com";
 const DEFAULT_ORIGIN: &str = "https://www.kylejameswalker.com";
@@ -20,33 +20,54 @@ fn main() {
     let (ws, http) = match relay.split_once("://") {
         Some(("wss" | "https", rest)) => (format!("wss://{rest}"), format!("https://{rest}")),
         Some(("ws" | "http", rest)) => (format!("ws://{rest}"), format!("http://{rest}")),
-        _ => fail(&format!("{relay}: give the relay as a ws, wss, http or https URL")),
+        _ => fail(&format!(
+            "{relay}: give the relay as a ws, wss, http or https URL"
+        )),
     };
-    let tag = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos()) % 0xff_ffff;
+    let tag = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos())
+        % 0xff_ffff;
     let room = |what: &str| format!("{ws}/signal/last-harvest-smoke-{what}-{tag:06x}");
 
     let ice = fetch_ice(&format!("{http}/ice"));
     println!("ok   /ice answered with {} server(s)", ice.servers.len());
 
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a tokio runtime");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a tokio runtime");
     let refused = runtime.block_on(probe(&room("evil"), Some("https://not-the-game.example")));
     match refused {
         Err(e) if e.contains("403") => println!("ok   a page from another origin is refused"),
-        other => fail(&format!("a page from another origin was not refused: {other:?}")),
+        other => fail(&format!(
+            "a page from another origin was not refused: {other:?}"
+        )),
     }
     let turn = match runtime.block_on(probe(&room("origin"), Some(&origin))) {
         Ok(turn) => turn,
         Err(e) => fail(&format!("the page origin {origin} was refused: {e}")),
     };
     match &turn {
-        Some(server) => println!("ok   signaling from {origin} gave TURN credentials for {}", server.urls.join(", ")),
-        None => println!("warn signaling from {origin} gave no TURN credentials: the relay has no TURN URL and secret"),
+        Some(server) => println!(
+            "ok   signaling from {origin} gave TURN credentials for {}",
+            server.urls.join(", ")
+        ),
+        None => println!(
+            "warn signaling from {origin} gave no TURN credentials: the relay has no TURN URL and secret"
+        ),
     }
 
     exchange(&room("direct"), &IceConfig::default());
     println!("ok   two peers traded a packet on each channel");
     if let Some(server) = turn {
-        exchange(&room("turn"), &IceConfig { servers: vec![server], relay_only: true });
+        exchange(
+            &room("turn"),
+            &IceConfig {
+                servers: vec![server],
+                relay_only: true,
+            },
+        );
         println!("ok   two peers traded a packet on each channel through TURN alone");
     }
     println!("all checks passed");
@@ -75,7 +96,10 @@ async fn probe(url: &str, origin: Option<&str>) -> Result<Option<IceServer>, Str
     let _ = rustls::crypto::ring::default_provider().install_default();
     let mut request = url.into_client_request().map_err(|e| e.to_string())?;
     if let Some(origin) = origin {
-        request.headers_mut().insert("origin", origin.parse().map_err(|_| format!("bad origin {origin}"))?);
+        request.headers_mut().insert(
+            "origin",
+            origin.parse().map_err(|_| format!("bad origin {origin}"))?,
+        );
     }
     let (mut socket, _) = tokio::time::timeout(TIMEOUT, tokio_tungstenite::connect_async(request))
         .await
@@ -84,11 +108,14 @@ async fn probe(url: &str, origin: Option<&str>) -> Result<Option<IceServer>, Str
     let mut assigned = false;
     let read = async {
         while let Some(Ok(message)) = socket.next().await {
-            let Message::Text(text) = message else { continue };
+            let Message::Text(text) = message else {
+                continue;
+            };
             let event: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
             assigned |= event.get("IdAssigned").is_some();
             if let Some(servers) = event.get("IceServers") {
-                return last_harvest_net::parse_ice(&servers.to_string()).map(|ice| ice.servers.into_iter().next());
+                return last_harvest_net::parse_ice(&servers.to_string())
+                    .map(|ice| ice.servers.into_iter().next());
             }
         }
         Err("signaling closed".to_string())
@@ -126,7 +153,9 @@ fn exchange(url: &str, ice: &IceConfig) {
     let mut resend = Instant::now();
     while got.iter().flatten().any(|g| !g) {
         if Instant::now() > end {
-            fail(&format!("{url}: packets missing, got {got:?} (a reliable, a unreliable; b reliable, b unreliable)"));
+            fail(&format!(
+                "{url}: packets missing, got {got:?} (a reliable, a unreliable; b reliable, b unreliable)"
+            ));
         }
         if Instant::now() >= resend {
             for channel in [RELIABLE, UNRELIABLE] {
@@ -136,8 +165,14 @@ fn exchange(url: &str, ice: &IceConfig) {
             resend = Instant::now() + Duration::from_millis(250);
         }
         for channel in [RELIABLE, UNRELIABLE] {
-            got[0][channel] |= a.receive(channel).iter().any(|(p, d)| *p == b_id && d == b"smoke from b");
-            got[1][channel] |= b.receive(channel).iter().any(|(p, d)| *p == a_id && d == b"smoke from a");
+            got[0][channel] |= a
+                .receive(channel)
+                .iter()
+                .any(|(p, d)| *p == b_id && d == b"smoke from b");
+            got[1][channel] |= b
+                .receive(channel)
+                .iter()
+                .any(|(p, d)| *p == a_id && d == b"smoke from a");
         }
         std::thread::sleep(Duration::from_millis(5));
     }

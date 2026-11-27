@@ -4,8 +4,8 @@ use crate::config::Config;
 use crate::limits::{self, AddressLimits, AddressSlot};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -35,7 +35,12 @@ struct Slot(Arc<AtomicUsize>);
 
 impl Slot {
     fn take(count: &Arc<AtomicUsize>, max: usize) -> Option<Slot> {
-        count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < max).then_some(n + 1)).ok().map(|_| Slot(count.clone()))
+        count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < max).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| Slot(count.clone()))
     }
 }
 
@@ -54,7 +59,10 @@ pub struct Poll {
 impl Poll {
     pub fn new(stream: &TcpStream) -> Poll {
         let _ = stream.set_read_timeout(Some(POLL_ACTIVE));
-        Poll { last_active: Instant::now(), timeout: POLL_ACTIVE }
+        Poll {
+            last_active: Instant::now(),
+            timeout: POLL_ACTIVE,
+        }
     }
 
     pub fn active(&mut self) {
@@ -63,7 +71,11 @@ impl Poll {
 
     /// Sets the timeout for the next read.
     pub fn update(&mut self, stream: &TcpStream) {
-        let timeout = if self.last_active.elapsed() < ACTIVE_WINDOW { POLL_ACTIVE } else { POLL_IDLE };
+        let timeout = if self.last_active.elapsed() < ACTIVE_WINDOW {
+            POLL_ACTIVE
+        } else {
+            POLL_IDLE
+        };
         if timeout != self.timeout {
             let _ = stream.set_read_timeout(Some(timeout));
             self.timeout = timeout;
@@ -91,7 +103,10 @@ pub fn serve(config: &Config) -> io::Result<u16> {
             }
             let Some(slot) = Slot::take(&counts.connections, config.max_connections) else {
                 if !full {
-                    println!("[relay] refusing connections: {} open", config.max_connections);
+                    println!(
+                        "[relay] refusing connections: {} open",
+                        config.max_connections
+                    );
                 }
                 full = true;
                 continue;
@@ -99,10 +114,12 @@ pub fn serve(config: &Config) -> io::Result<u16> {
             full = false;
             // A connection from a possible proxy is counted once its X-Forwarded-For has arrived.
             let address = match stream.peer_addr().map(|a| a.ip()) {
-                Ok(ip) if !limits::may_proxy(ip, config.trusted_proxies) => match counts.addresses.open(ip, Instant::now()) {
-                    Ok(address) => Some(address),
-                    Err(_) => continue,
-                },
+                Ok(ip) if !limits::may_proxy(ip, config.trusted_proxies) => {
+                    match counts.addresses.open(ip, Instant::now()) {
+                        Ok(address) => Some(address),
+                        Err(_) => continue,
+                    }
+                }
                 Ok(_) => None,
                 Err(_) => continue,
             };
@@ -127,33 +144,63 @@ fn handle_connection(
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let _ = stream.set_nodelay(true);
 
-    let Some((head, head_len)) = peek_request_head(&stream) else { return };
-    let peer = stream.peer_addr().map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
-    let client = if limits::may_proxy(peer, config.trusted_proxies) { limits::forwarded_for(&head).unwrap_or(peer) } else { peer };
+    let Some((head, head_len)) = peek_request_head(&stream) else {
+        return;
+    };
+    let peer = stream
+        .peer_addr()
+        .map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
+    let client = if limits::may_proxy(peer, config.trusted_proxies) {
+        limits::forwarded_for(&head).unwrap_or(peer)
+    } else {
+        peer
+    };
     let _address = match address {
         Some(address) => address,
-        None => {
-            match counts.addresses.open(client, Instant::now()) {
-                Ok(address) => address,
-                Err(_) => {
-                    refuse(&mut stream, head_len, "429 Too Many Requests", "too many connections\n");
-                    return;
-                }
+        None => match counts.addresses.open(client, Instant::now()) {
+            Ok(address) => address,
+            Err(_) => {
+                refuse(
+                    &mut stream,
+                    head_len,
+                    "429 Too Many Requests",
+                    "too many connections\n",
+                );
+                return;
             }
-        }
+        },
     };
     let (path, query, upgrade) = parse_request_head(&head);
-    if let Some(room) = path.strip_prefix("/signal/").filter(|r| upgrade && !r.is_empty()) {
+    if let Some(room) = path
+        .strip_prefix("/signal/")
+        .filter(|r| upgrade && !r.is_empty())
+    {
         let Some(_slot) = Slot::take(&counts.signaling, config.max_clients) else {
             println!("[relay] refused a signaling client: relay full");
-            refuse(&mut stream, head_len, "503 Service Unavailable", "relay full\n");
+            refuse(
+                &mut stream,
+                head_len,
+                "503 Service Unavailable",
+                "relay full\n",
+            );
             return;
         };
         let Ok(_peer) = counts.peers.open(client, Instant::now()) else {
-            refuse(&mut stream, head_len, "429 Too Many Requests", "too many signaling peers\n");
+            refuse(
+                &mut stream,
+                head_len,
+                "429 Too Many Requests",
+                "too many signaling peers\n",
+            );
             return;
         };
-        crate::signal::run(stream, room.to_string(), crate::signal::wants_resume(&query), client, config);
+        crate::signal::run(
+            stream,
+            room.to_string(),
+            crate::signal::wants_resume(&query),
+            client,
+            config,
+        );
         return;
     }
     let mut consumed = vec![0; head_len];
@@ -161,8 +208,18 @@ fn handle_connection(
     match path.as_str() {
         "/healthz" => respond(&mut stream, "200 OK", "text/plain", "ok\n"),
         "/ice" => ice(&mut stream, &head, config),
-        "/" if upgrade => respond(&mut stream, "404 Not Found", "text/plain", "last-harvest-relay: signaling is on /signal/<room>\n"),
-        "/" => respond(&mut stream, "426 Upgrade Required", "text/plain", "last-harvest-relay: connect with a WebSocket to /signal/<room>\n"),
+        "/" if upgrade => respond(
+            &mut stream,
+            "404 Not Found",
+            "text/plain",
+            "last-harvest-relay: signaling is on /signal/<room>\n",
+        ),
+        "/" => respond(
+            &mut stream,
+            "426 Upgrade Required",
+            "text/plain",
+            "last-harvest-relay: connect with a WebSocket to /signal/<room>\n",
+        ),
         _ => respond(&mut stream, "404 Not Found", "text/plain", "not found\n"),
     }
 }
@@ -171,11 +228,18 @@ fn handle_connection(
 fn ice(stream: &mut TcpStream, head: &str, config: &Config) {
     let origin = limits::header(head, "origin");
     if !config.origin_allowed(origin) {
-        respond(stream, "403 Forbidden", "text/plain", "origin not allowed\n");
+        respond(
+            stream,
+            "403 Forbidden",
+            "text/plain",
+            "origin not allowed\n",
+        );
         return;
     }
     let body = r#"{"iceServers":[]}"#;
-    let allow = origin.map(|o| format!("Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n")).unwrap_or_default();
+    let allow = origin
+        .map(|o| format!("Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n"))
+        .unwrap_or_default();
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n{allow}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
@@ -213,12 +277,16 @@ fn peek_request_head(stream: &TcpStream) -> Option<(String, usize)> {
 /// The path, and whether the request asks for a WebSocket.
 fn parse_request_head(head: &str) -> (String, String, bool) {
     let mut lines = head.lines();
-    let target = lines.next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("");
+    let target = lines
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("");
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let (path, query) = (path.to_string(), query.to_string());
     let upgrade = lines.any(|l| {
         let (name, value) = l.split_once(':').unwrap_or((l, ""));
-        name.trim().eq_ignore_ascii_case("upgrade") && value.to_ascii_lowercase().contains("websocket")
+        name.trim().eq_ignore_ascii_case("upgrade")
+            && value.to_ascii_lowercase().contains("websocket")
     });
     (path, query, upgrade)
 }
@@ -234,11 +302,17 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str)
 
 /// True when `127.0.0.1:<port>` answers `GET /healthz` with 200.
 pub fn healthcheck(port: u16) -> bool {
-    let Ok(mut stream) = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_secs(3)) else {
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_secs(3),
+    ) else {
         return false;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-    if stream.write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").is_err() {
+    if stream
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
         return false;
     }
     let mut response = String::new();
@@ -261,7 +335,9 @@ mod tests {
 
     fn open(port: u16) -> TcpStream {
         let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
         stream
     }
 
@@ -279,7 +355,11 @@ mod tests {
         loop {
             let value: serde_json::Value = serde_json::from_str(&read_text(ws)?).ok()?;
             if let Some(field) = value.get(key) {
-                return Some(field.as_str().map_or_else(|| field.to_string(), str::to_string));
+                return Some(
+                    field
+                        .as_str()
+                        .map_or_else(|| field.to_string(), str::to_string),
+                );
             }
         }
     }
@@ -294,15 +374,27 @@ mod tests {
     }
 
     /// A signaling peer whose request says, as a proxy would, that it comes from `forwarded`.
-    fn signal_from(port: u16, room: &str, forwarded: Option<&str>) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
+    fn signal_from(
+        port: u16,
+        room: &str,
+        forwarded: Option<&str>,
+    ) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
         use tungstenite::client::IntoClientRequest;
         let stream = open(port);
-        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        let mut request = format!("ws://127.0.0.1:{port}/signal/{room}").into_client_request().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut request = format!("ws://127.0.0.1:{port}/signal/{room}")
+            .into_client_request()
+            .unwrap();
         if let Some(address) = forwarded {
-            request.headers_mut().insert("x-forwarded-for", address.parse().unwrap());
+            request
+                .headers_mut()
+                .insert("x-forwarded-for", address.parse().unwrap());
         }
-        tungstenite::client::client(request, MaybeTlsStream::Plain(stream)).map(|(ws, _)| ws).map_err(|e| e.to_string())
+        tungstenite::client::client(request, MaybeTlsStream::Plain(stream))
+            .map(|(ws, _)| ws)
+            .map_err(|e| e.to_string())
     }
 
     fn read_text(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) -> Option<String> {
@@ -318,7 +410,10 @@ mod tests {
         let mut held = [open(port), open(port)];
         let mut extra = open(port);
         assert!(closed(&mut extra));
-        assert!(!closed(&mut held[1]), "the relay waits for an open connection's request");
+        assert!(
+            !closed(&mut held[1]),
+            "the relay waits for an open connection's request"
+        );
 
         drop(held);
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -327,26 +422,54 @@ mod tests {
             if !closed(&mut retry) {
                 break;
             }
-            assert!(Instant::now() < deadline, "closed connections free their places");
+            assert!(
+                Instant::now() < deadline,
+                "closed connections free their places"
+            );
         }
     }
 
     #[test]
     fn a_forwarded_address_holds_at_most_max_per_address() {
         let port = relay(|c| c.max_per_address = 2);
-        let _held: Vec<_> = (0..2).map(|i| signal_from(port, &format!("addr-{i}"), Some("203.0.113.9")).unwrap()).collect();
-        assert!(signal_from(port, "addr-x", Some("203.0.113.9")).unwrap_err().contains("429"));
-        assert!(signal_from(port, "addr-y", Some("198.51.100.1")).is_ok(), "other addresses are not affected");
-        let _loopback: Vec<_> = (0..3).map(|i| signal(port, &format!("addr-lo-{i}")).unwrap()).collect();
+        let _held: Vec<_> = (0..2)
+            .map(|i| signal_from(port, &format!("addr-{i}"), Some("203.0.113.9")).unwrap())
+            .collect();
+        assert!(
+            signal_from(port, "addr-x", Some("203.0.113.9"))
+                .unwrap_err()
+                .contains("429")
+        );
+        assert!(
+            signal_from(port, "addr-y", Some("198.51.100.1")).is_ok(),
+            "other addresses are not affected"
+        );
+        let _loopback: Vec<_> = (0..3)
+            .map(|i| signal(port, &format!("addr-lo-{i}")).unwrap())
+            .collect();
     }
 
     #[test]
     fn an_address_holds_at_most_max_peers_per_address() {
         let port = relay(|c| c.max_peers_per_address = 2);
-        let mut held: Vec<_> = (0..2).map(|i| signal_from(port, &format!("peers-{i}"), Some("2001:db8:7:1::1")).unwrap()).collect();
-        assert!(signal_from(port, "peers-x", Some("2001:db8:7:2::9")).unwrap_err().contains("429"), "the same /56");
-        assert!(signal_from(port, "peers-y", Some("198.51.100.2")).is_ok(), "other addresses are not affected");
-        assert_eq!(get(port, "/healthz", None).lines().next(), Some("HTTP/1.1 200 OK"), "other requests are not affected");
+        let mut held: Vec<_> = (0..2)
+            .map(|i| signal_from(port, &format!("peers-{i}"), Some("2001:db8:7:1::1")).unwrap())
+            .collect();
+        assert!(
+            signal_from(port, "peers-x", Some("2001:db8:7:2::9"))
+                .unwrap_err()
+                .contains("429"),
+            "the same /56"
+        );
+        assert!(
+            signal_from(port, "peers-y", Some("198.51.100.2")).is_ok(),
+            "other addresses are not affected"
+        );
+        assert_eq!(
+            get(port, "/healthz", None).lines().next(),
+            Some("HTTP/1.1 200 OK"),
+            "other requests are not affected"
+        );
 
         held[0].close(None).unwrap();
         let _ = held[0].flush();
@@ -365,14 +488,24 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match alone.read() {
-                Ok(Message::Close(_)) | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => break,
-                Err(tungstenite::Error::Io(ref e)) if !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                Ok(Message::Close(_))
+                | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+                    break;
+                }
+                Err(tungstenite::Error::Io(ref e))
+                    if !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
+                    break;
+                }
                 _ => assert!(Instant::now() < deadline, "the relay kept a lonely peer"),
             }
         }
         for peer in &mut pair {
             peer.send(Message::Text("\"KeepAlive\"".into())).unwrap();
-            assert!(drain(peer).iter().any(|t| t.contains("KeepAlive")), "a peer with company stays");
+            assert!(
+                drain(peer).iter().any(|t| t.contains("KeepAlive")),
+                "a peer with company stays"
+            );
         }
     }
 
@@ -404,7 +537,10 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             if let Err(error) = peer.read() {
-                assert!(!matches!(error, tungstenite::Error::Io(ref e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)), "{error}");
+                assert!(
+                    !matches!(error, tungstenite::Error::Io(ref e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)),
+                    "{error}"
+                );
                 return;
             }
         }
@@ -412,7 +548,11 @@ mod tests {
     }
 
     /// A connection asking to resume, with `message` as its first message.
-    fn resume(port: u16, room: &str, message: Option<String>) -> WebSocket<MaybeTlsStream<TcpStream>> {
+    fn resume(
+        port: u16,
+        room: &str,
+        message: Option<String>,
+    ) -> WebSocket<MaybeTlsStream<TcpStream>> {
         let mut ws = signal(port, &format!("{room}?resume")).unwrap();
         if let Some(message) = message {
             ws.send(Message::Text(message.into())).unwrap();
@@ -436,17 +576,38 @@ mod tests {
 
         // A connection lost without a close frame keeps its place.
         drop(first);
-        assert!(!drain(&mut second).iter().any(|t| t.contains("PeerLeft")), "no PeerLeft while the place is held");
+        assert!(
+            !drain(&mut second).iter().any(|t| t.contains("PeerLeft")),
+            "no PeerLeft while the place is held"
+        );
 
-        assert_eq!(read_text(&mut resume(port, "resume", resume_message(&id, "wrong"))), None);
-        assert_eq!(read_text(&mut signal(port, &format!("resume?resume={id}&token={token}")).unwrap()), None, "a token in the URL is not taken");
-        assert_eq!(read_text(&mut resume(port, "resume", Some("\"KeepAlive\"".into()))), None);
+        assert_eq!(
+            read_text(&mut resume(port, "resume", resume_message(&id, "wrong"))),
+            None
+        );
+        assert_eq!(
+            read_text(&mut signal(port, &format!("resume?resume={id}&token={token}")).unwrap()),
+            None,
+            "a token in the URL is not taken"
+        );
+        assert_eq!(
+            read_text(&mut resume(port, "resume", Some("\"KeepAlive\"".into()))),
+            None
+        );
         let mut resumed = resume(port, "resume", resume_message(&id, &token));
         assert_eq!(read_field(&mut resumed, "IdAssigned").unwrap(), id);
-        assert!(!drain(&mut second).iter().any(|t| t.contains("NewPeer")), "a resume is not a new peer");
+        assert!(
+            !drain(&mut second).iter().any(|t| t.contains("NewPeer")),
+            "a resume is not a new peer"
+        );
         let hello = serde_json::json!({ "Signal": { "receiver": id, "data": "hello" } });
-        second.send(Message::Text(hello.to_string().into())).unwrap();
-        assert_eq!(read_field(&mut resumed, "Signal").unwrap(), serde_json::json!({ "sender": second_id, "data": "hello" }).to_string());
+        second
+            .send(Message::Text(hello.to_string().into()))
+            .unwrap();
+        assert_eq!(
+            read_field(&mut resumed, "Signal").unwrap(),
+            serde_json::json!({ "sender": second_id, "data": "hello" }).to_string()
+        );
 
         // A close frame leaves at once.
         resumed.close(None).unwrap();
@@ -464,14 +625,25 @@ mod tests {
         read_field(&mut second, "IdAssigned").unwrap();
         crate::signal::hold_for_test("expire", &id, Duration::from_millis(200));
         assert_eq!(read_field(&mut second, "PeerLeft").unwrap(), id);
-        assert_eq!(read_text(&mut resume(port, "expire", resume_message(&id, &token))), None);
+        assert_eq!(
+            read_text(&mut resume(port, "expire", resume_message(&id, &token))),
+            None
+        );
     }
 
     fn get(port: u16, path: &str, origin: Option<&str>) -> String {
         let mut stream = open(port);
-        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
-        write!(stream, "GET {path} HTTP/1.1\r\nHost: x\r\n{origin}Connection: close\r\n\r\n").unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let origin = origin
+            .map(|o| format!("Origin: {o}\r\n"))
+            .unwrap_or_default();
+        write!(
+            stream,
+            "GET {path} HTTP/1.1\r\nHost: x\r\n{origin}Connection: close\r\n\r\n"
+        )
+        .unwrap();
         let mut response = String::new();
         let _ = stream.read_to_string(&mut response);
         response
@@ -486,15 +658,25 @@ mod tests {
         });
         assert!(healthcheck(port));
         let native = get(port, "/ice", None);
-        assert!(native.starts_with("HTTP/1.1 200") && native.ends_with(r#"{"iceServers":[]}"#), "{native}");
+        assert!(
+            native.starts_with("HTTP/1.1 200") && native.ends_with(r#"{"iceServers":[]}"#),
+            "{native}"
+        );
         let page = get(port, "/ice", Some("https://game.example.com"));
-        assert!(page.contains("Access-Control-Allow-Origin: https://game.example.com") && !page.contains("turn:"), "{page}");
+        assert!(
+            page.contains("Access-Control-Allow-Origin: https://game.example.com")
+                && !page.contains("turn:"),
+            "{page}"
+        );
         assert!(get(port, "/ice", Some("https://evil.example")).starts_with("HTTP/1.1 403"));
         assert!(get(port, "/nope", None).starts_with("HTTP/1.1 404"));
     }
 
     /// The `IceServers` messages `ws` gets for `time`, and the messages before the first.
-    fn ice_messages(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, time: Duration) -> (Vec<String>, Vec<serde_json::Value>) {
+    fn ice_messages(
+        ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+        time: Duration,
+    ) -> (Vec<String>, Vec<serde_json::Value>) {
         let (mut before, mut ice) = (Vec::new(), Vec::new());
         let deadline = Instant::now() + time;
         while let Some(text) = read_text(ws).filter(|_| Instant::now() < deadline) {
@@ -517,29 +699,59 @@ mod tests {
         });
         let mut first = signal_from(port, "turn", Some("203.0.113.5")).unwrap();
         let (before, ice) = ice_messages(&mut first, Duration::from_millis(1200));
-        assert_eq!(before.len(), 2, "IdAssigned and ResumeToken come first: {before:?}");
-        assert!(ice.len() >= 2, "a fresh credential every quarter of its lifetime: {ice:?}");
+        assert_eq!(
+            before.len(),
+            2,
+            "IdAssigned and ResumeToken come first: {before:?}"
+        );
+        assert!(
+            ice.len() >= 2,
+            "a fresh credential every quarter of its lifetime: {ice:?}"
+        );
         let name = crate::turn::turn_name("00ff", "203.0.113.5".parse().unwrap());
         for server in &ice {
             assert_eq!(server["urls"][0], "turn:relay.example.com:3478");
-            assert!(server["username"].as_str().unwrap().ends_with(&format!(":{name}")), "{server}");
+            assert!(
+                server["username"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with(&format!(":{name}")),
+                "{server}"
+            );
         }
 
         let mut other = signal_from(port, "turn", Some("198.51.100.5")).unwrap();
         let (_, ice) = ice_messages(&mut other, Duration::from_millis(300));
-        assert!(!ice[0]["username"].as_str().unwrap().ends_with(&format!(":{name}")), "another address, another name");
+        assert!(
+            !ice[0]["username"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!(":{name}")),
+            "another address, another name"
+        );
 
         let mut plain = signal(relay(|_| {}), "no-turn").unwrap();
-        assert!(!drain(&mut plain).iter().any(|t| t.contains("IceServers")), "no TURN, no message");
+        assert!(
+            !drain(&mut plain).iter().any(|t| t.contains("IceServers")),
+            "no TURN, no message"
+        );
     }
 
     #[test]
     fn request_heads() {
-        assert_eq!(parse_request_head("GET /healthz HTTP/1.1\r\nHost: x"), ("/healthz".to_string(), String::new(), false));
         assert_eq!(
-            parse_request_head("GET /?a=b HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: WebSocket"),
+            parse_request_head("GET /healthz HTTP/1.1\r\nHost: x"),
+            ("/healthz".to_string(), String::new(), false)
+        );
+        assert_eq!(
+            parse_request_head(
+                "GET /?a=b HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: WebSocket"
+            ),
             ("/".to_string(), "a=b".to_string(), true)
         );
-        assert_eq!(parse_request_head(""), (String::new(), String::new(), false));
+        assert_eq!(
+            parse_request_head(""),
+            (String::new(), String::new(), false)
+        );
     }
 }

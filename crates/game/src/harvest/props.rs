@@ -75,10 +75,21 @@ impl PropFields {
         let mut next = views.iter().copied();
         let mut take = |on: bool| if on { next.next() } else { None };
         let (footprint, roof) = (take(self.footprint), take(self.roof));
-        let (Some(south), Some(east)) = (take(true), take(true)) else { return };
+        let (Some(south), Some(east)) = (take(true), take(true)) else {
+            return;
+        };
         let (north, west) = (take(self.north), take(self.west));
         match self.by_views {
-            Some(ByViews::Carve) => self.stand = Some(Stand::Carve { footprint, roof, south, east, north, west }),
+            Some(ByViews::Carve) => {
+                self.stand = Some(Stand::Carve {
+                    footprint,
+                    roof,
+                    south,
+                    east,
+                    north,
+                    west,
+                })
+            }
             Some(ByViews::Turned { depth }) => self.stand = Some(Stand::Turned { east, depth }),
             None => {}
         }
@@ -97,19 +108,44 @@ impl PropFields {
         let fh = h.checked_sub(self.views).filter(|&v| v > 0)?;
         let cells = self.cells();
         let by_views = w.saturating_sub((1 + self.west as u32) * fh) / (1 + self.north as u32);
-        [w / cells, by_views].into_iter().find(|&fw| fw > 0 && w == self.sheet_w(fw, fh)).map(|fw| [fw, fh])
+        [w / cells, by_views]
+            .into_iter()
+            .find(|&fw| fw > 0 && w == self.sheet_w(fw, fh))
+            .map(|fw| [fw, fh])
     }
 
     /// How wide the sheet is for frames `fw` by `fh`.
     pub fn sheet_w(&self, fw: u32, fh: u32) -> u32 {
-        let views = if self.views > 0 { (1 + self.north as u32) * fw + (1 + self.west as u32) * fh } else { 0 };
+        let views = if self.views > 0 {
+            (1 + self.north as u32) * fw + (1 + self.west as u32) * fh
+        } else {
+            0
+        };
         (self.cells() * fw).max(views)
     }
 }
 
 /// Reads a prop's text; errors name the line.
 pub fn prop_fields(text: &str) -> Result<PropFields, String> {
-    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, alpha: Vec::new(), paint: Paint::default() };
+    let mut f = PropFields {
+        id: String::new(),
+        frames: 1,
+        fps: 0.0,
+        open: 0,
+        stand: None,
+        by_views: None,
+        views: 0,
+        footprint: false,
+        roof: false,
+        north: false,
+        west: false,
+        clear: Vec::new(),
+        cover: true,
+        hp: 0.0,
+        broken: false,
+        alpha: Vec::new(),
+        paint: Paint::default(),
+    };
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -121,13 +157,24 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
                 return Err(format!("{n}: a prop has one [id]"));
             }
             if !super::valid_map_id(id) {
-                return Err(format!("{n}: a prop's id is 1 to {} lowercase letters, digits and _", crate::PLAYER_ID_MAX));
+                return Err(format!(
+                    "{n}: a prop's id is 1 to {} lowercase letters, digits and _",
+                    crate::PLAYER_ID_MAX
+                ));
             }
             f.id = id.to_string();
             continue;
         }
-        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
-        let number = || value.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number"));
+        let (key, value) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(k, v)| (k, v.trim()));
+        let number = || {
+            value
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .ok_or_else(|| format!("{n}: {key} is a number"))
+        };
         match key {
             "frames" => f.frames = Some(number()? as u32).filter(|v| (1..=MAX_FRAMES).contains(v)).ok_or_else(|| format!("{n}: frames is 1 to {MAX_FRAMES}"))?,
             "fps" => f.fps = Some(number()?).filter(|v| *v <= 60.0).ok_or_else(|| format!("{n}: fps is a number from 0 to 60"))?,
@@ -157,7 +204,10 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
         return Err("a broken frame is the last of 2 or more frames".into());
     }
     if f.by_views.is_some() && f.views == 0 {
-        return Err("a carved or turned prop has views under its frames, and a views line saying how tall".into());
+        return Err(
+            "a carved or turned prop has views under its frames, and a views line saying how tall"
+                .into(),
+        );
     }
     f.paint.check()?;
     Ok(f)
@@ -206,7 +256,14 @@ pub fn prop_text(f: &PropFields) -> String {
         s += &format!("alpha {a}\n");
     }
     if !f.clear.is_empty() {
-        s += &format!("clear {}\n", f.clear.iter().map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).collect::<Vec<_>>().join(" "));
+        s += &format!(
+            "clear {}\n",
+            f.clear
+                .iter()
+                .map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
     }
     s + &f.paint.text()
 }
@@ -215,7 +272,11 @@ pub fn prop_text(f: &PropFields) -> String {
 pub fn turned_depth(text: &str) -> Option<Option<f32>> {
     match text.strip_prefix("turned")?.trim() {
         "" => Some(None),
-        n => n.parse::<f32>().ok().filter(|d| (1.0..=64.0).contains(d)).map(Some),
+        n => n
+            .parse::<f32>()
+            .ok()
+            .filter(|d| (1.0..=64.0).contains(d))
+            .map(Some),
     }
 }
 
@@ -229,21 +290,36 @@ fn yes_no(word: &str) -> Option<bool> {
 
 fn parse_stand(text: &str) -> Option<Stand> {
     let words: Vec<&str> = text.split_whitespace().collect();
-    let size = || words.get(1)?.parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=256.0).contains(v));
+    let size = || {
+        words
+            .get(1)?
+            .parse::<f32>()
+            .ok()
+            .filter(|v| v.is_finite() && (0.0..=256.0).contains(v))
+    };
     Some(match *words.first()? {
         "prop" => Stand::Prop { depth: size()? },
         "fold" => Stand::Fold { rows: size()? },
         "slab" => {
             let lift = match words.get(2..4) {
-                Some(["float", n]) => n.parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=256.0).contains(v))?,
+                Some(["float", n]) => n
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| v.is_finite() && (0.0..=256.0).contains(v))?,
                 None if words.len() == 2 => 0.0,
                 _ => return None,
             };
-            Stand::Slab { height: size()?, lift }
+            Stand::Slab {
+                height: size()?,
+                lift,
+            }
         }
         "figure" => Stand::Figure {
             lift: match words.get(1..3) {
-                Some(["float", n]) => n.parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=256.0).contains(v))?,
+                Some(["float", n]) => n
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| v.is_finite() && (0.0..=256.0).contains(v))?,
                 None if words.len() == 1 => 0.0,
                 _ => return None,
             },
@@ -298,8 +374,14 @@ impl Named {
 
     /// The coat one of its frames is in.
     fn coat_of(&self, art: Art) -> usize {
-        let at = |all: &[Art]| all.iter().position(|a| *a == art).map(|i| i * self.coats() / all.len());
-        at(self.frames).or_else(|| self.broken.and_then(at)).unwrap_or(0)
+        let at = |all: &[Art]| {
+            all.iter()
+                .position(|a| *a == art)
+                .map(|i| i * self.coats() / all.len())
+        };
+        at(self.frames)
+            .or_else(|| self.broken.and_then(at))
+            .unwrap_or(0)
     }
 
     /// The frame shown once the prop showing `art` breaks.
@@ -336,12 +418,27 @@ fn named(f: &PropFields, coats: Vec<Coat>) -> Named {
         stands.push(stand);
     }
     let broken: &'static [Art] = broken.leak();
-    Named { name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()), frames: frames.leak(), fps: f.fps, open: f.open, stands, cover: f.cover, hp: f.hp, broken: (!broken.is_empty()).then_some(broken), alpha: f.alpha.clone() }
+    Named {
+        name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()),
+        frames: frames.leak(),
+        fps: f.fps,
+        open: f.open,
+        stands,
+        cover: f.cover,
+        hp: f.hp,
+        broken: (!broken.is_empty()).then_some(broken),
+        alpha: f.alpha.clone(),
+    }
 }
 
 /// A prop by its sprite name, such as `PROP_RUSTY_TANK`.
 pub fn prop(name: &str) -> Option<Named> {
-    NAMED.read().unwrap_or_else(|e| e.into_inner()).iter().find(|n| n.name == name).cloned()
+    NAMED
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|n| n.name == name)
+        .cloned()
 }
 
 /// Every prop maps can place by name, in the order set.
@@ -357,7 +454,9 @@ pub(crate) fn stand_of(art: Art) -> Option<Stand> {
 /// How opaque an added sprite draws, if it is a prop's frame.
 pub(crate) fn alpha_of(art: Art) -> Option<f32> {
     let named = NAMED.read().ok()?;
-    let n = named.iter().find(|n| n.frames.contains(&art) || n.broken.is_some_and(|b| b.contains(&art)))?;
+    let n = named
+        .iter()
+        .find(|n| n.frames.contains(&art) || n.broken.is_some_and(|b| b.contains(&art)))?;
     let per = n.frames.len() / n.coats();
     let frame = match n.frames.iter().position(|a| *a == art) {
         Some(i) => i % per.max(1),
@@ -368,14 +467,24 @@ pub(crate) fn alpha_of(art: Art) -> Option<f32> {
 
 /// The prop an added sprite is a frame of.
 pub(crate) fn named_of(art: Art) -> Option<Named> {
-    NAMED.read().ok()?.iter().find(|n| n.frames.contains(&art) || n.broken.is_some_and(|b| b.contains(&art))).cloned()
+    NAMED
+        .read()
+        .ok()?
+        .iter()
+        .find(|n| n.frames.contains(&art) || n.broken.is_some_and(|b| b.contains(&art)))
+        .cloned()
 }
 
 /// Loads props into a texture of their own, so maps that place them can be checked away from the game, as the
 /// packer does; returns a line for each left out. Once a run: the sprites it adds can't be added again.
 pub fn load_for_checks(props: &[Card]) -> Vec<String> {
     let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-    let (notes, rects, detail, named, _) = pack(props, &mut atlas, &mut super::enemies::start(), crate::art::RECTS.len());
+    let (notes, rects, detail, named, _) = pack(
+        props,
+        &mut atlas,
+        &mut super::enemies::start(),
+        crate::art::RECTS.len(),
+    );
     crate::art::set_added(rects, detail);
     set_props(named);
     notes
@@ -383,11 +492,23 @@ pub fn load_for_checks(props: &[Card]) -> Vec<String> {
 
 /// A line for each prop left out, the rects drawn with their details, the props drawn with their coats, and each
 /// frame with its copy for the 3D view.
-type Packed = (Vec<String>, Vec<[u16; 4]>, Vec<u8>, Vec<(PropFields, Vec<Coat>)>, Vec<(Art, Art)>);
+type Packed = (
+    Vec<String>,
+    Vec<[u16; 4]>,
+    Vec<u8>,
+    Vec<(PropFields, Vec<Coat>)>,
+    Vec<(Art, Art)>,
+);
 
 /// Draws each prop's frames into the texture's free rows from `cursor` on, numbered from `first`.
-pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
-    let (mut notes, mut rects, mut details, mut kept, mut solids) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+pub(super) fn pack(
+    cards: &[Card],
+    atlas: &mut [u8],
+    cursor: &mut [u16; 3],
+    first: usize,
+) -> Packed {
+    let (mut notes, mut rects, mut details, mut kept, mut solids) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for card in cards {
         let fields = match prop_fields(&card.text) {
             Ok(f) => f,
@@ -398,34 +519,61 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         };
         let [fw, fh] = card.frame;
         let (sw, vh) = (fields.sheet_w(fw, fh), fields.views);
-        if !(1..=MAX_FRAME).contains(&fw) || !(1..=MAX_FRAME).contains(&fh) || card.sheet.len() != (sw * (fh + vh) * 4) as usize {
-            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {} across", card.name, fields.frames));
+        if !(1..=MAX_FRAME).contains(&fw)
+            || !(1..=MAX_FRAME).contains(&fh)
+            || card.sheet.len() != (sw * (fh + vh) * 4) as usize
+        {
+            notes.push(format!(
+                "{}: frames are 1 to {MAX_FRAME} pixels, {} across",
+                card.name, fields.frames
+            ));
             continue;
         }
         if !crate::art::DETAILS.contains(&card.detail) {
             notes.push(format!("{}: a prop's detail is 1, 2 or 4", card.name));
             continue;
         }
-        if kept.iter().any(|(f, _): &(PropFields, Vec<Coat>)| f.id == fields.id) {
-            notes.push(format!("{}: another prop is [{}] too", card.name, fields.id));
+        if kept
+            .iter()
+            .any(|(f, _): &(PropFields, Vec<Coat>)| f.id == fields.id)
+        {
+            notes.push(format!(
+                "{}: another prop is [{}] too",
+                card.name, fields.id
+            ));
             continue;
         }
         // Each picture as its top-left in the sheet and its size: the frames, footprint and roof, then the views, then
         // the frames again for the 3D view, without the colors it clears; all of them again for each coat.
-        let mut pictures: Vec<[u32; 4]> = (0..fields.cells()).map(|k| [k * fw, 0, fw, fh]).collect();
+        let mut pictures: Vec<[u32; 4]> =
+            (0..fields.cells()).map(|k| [k * fw, 0, fw, fh]).collect();
         if vh > 0 {
             pictures.extend([[0, fh, fw, vh], [fw, fh, fh, vh]]);
             let x = fw + fh;
             pictures.extend(fields.north.then_some([x, fh, fw, vh]));
-            pictures.extend(fields.west.then_some([x + fields.north as u32 * fw, fh, fh, vh]));
+            pictures.extend(
+                fields
+                    .west
+                    .then_some([x + fields.north as u32 * fw, fh, fh, vh]),
+            );
         }
-        let copies = if fields.clear.is_empty() { 0 } else { fields.frames as usize };
+        let copies = if fields.clear.is_empty() {
+            0
+        } else {
+            fields.frames as usize
+        };
         let plain = pictures.len();
         pictures.extend((0..copies as u32).map(|k| [k * fw, 0, fw, fh]));
         let group = pictures.len();
-        let pictures: Vec<[u32; 4]> = (0..fields.paint.copies()).flat_map(|_| pictures.iter().copied()).collect();
+        let pictures: Vec<[u32; 4]> = (0..fields.paint.copies())
+            .flat_map(|_| pictures.iter().copied())
+            .collect();
         let mut try_cursor = *cursor;
-        let Some(spots) = pictures.iter().map(|p| super::enemies::place(&mut try_cursor, [p[2] as u16, p[3] as u16])).collect::<Option<Vec<_>>>() else {
+        let Some(spots) = pictures
+            .iter()
+            .map(|p| super::enemies::place(&mut try_cursor, [p[2] as u16, p[3] as u16]))
+            .collect::<Option<Vec<_>>>()
+        else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
             continue;
         };
@@ -439,13 +587,18 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
                     let p = &card.sheet[s..s + 4];
                     let cleared = k % group >= plain && fields.clear.contains(&[p[0], p[1], p[2]]);
                     let d = ((py * w + px) * 4) as usize;
-                    picture[d..d + 4].copy_from_slice(&if p[3] >= 128 && !cleared { [p[0], p[1], p[2], 255] } else { [0; 4] });
+                    picture[d..d + 4].copy_from_slice(&if p[3] >= 128 && !cleared {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0; 4]
+                    });
                 }
             }
             fields.paint.repaint(k / group, &mut picture);
             for py in 0..h {
                 let d = (((y as u32 + py) * ATLAS_W + x as u32) * 4) as usize;
-                atlas[d..d + (w * 4) as usize].copy_from_slice(&picture[(py * w * 4) as usize..][..(w * 4) as usize]);
+                atlas[d..d + (w * 4) as usize]
+                    .copy_from_slice(&picture[(py * w * 4) as usize..][..(w * 4) as usize]);
             }
             arts.push(Art((first + rects.len()) as u16));
             rects.push([x, y, w as u16, h as u16]);
@@ -473,25 +626,66 @@ mod tests {
 
     #[test]
     fn a_prop_number_out_of_range_is_refused_not_bent() {
-        for (bad, says) in [("frames 0", "2: frames is 1 to 16"), ("frames 99", "2: frames is 1 to 16"), ("fps 1000", "2: fps is a number from 0 to 60"), ("open 65", "2: open is 0 to 64"), ("views 257", "2: views is 0 to 256")] {
-            assert!(prop_fields(&format!("[p]\n{bad}")).unwrap_err().starts_with(says), "{bad}");
+        for (bad, says) in [
+            ("frames 0", "2: frames is 1 to 16"),
+            ("frames 99", "2: frames is 1 to 16"),
+            ("fps 1000", "2: fps is a number from 0 to 60"),
+            ("open 65", "2: open is 0 to 64"),
+            ("views 257", "2: views is 0 to 256"),
+        ] {
+            assert!(
+                prop_fields(&format!("[p]\n{bad}"))
+                    .unwrap_err()
+                    .starts_with(says),
+                "{bad}"
+            );
         }
         let edge = prop_fields("[p]\nframes 16\nfps 60\nopen 64\nviews 256").unwrap();
-        assert_eq!((edge.frames, edge.fps, edge.open, edge.views), (16, 60.0, 64, 256));
+        assert_eq!(
+            (edge.frames, edge.fps, edge.open, edge.views),
+            (16, 60.0, 64, 256)
+        );
     }
 
     #[test]
     fn a_prop_packs_a_3d_copy_without_the_colors_it_clears() {
         let fields = prop_fields("[ash]\nframes 2\nclear FFFFFF").unwrap();
-        assert_eq!(prop_fields(&prop_text(&fields)).unwrap().clear, [[255, 255, 255]]);
-        assert!(prop_fields("[ash]\nclear #FFFFFF").unwrap_err().contains("without a #"), "a # starts a comment");
-        let card = Card { detail: 1, worn: String::new(), name: "ash.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet: vec![255; 2 * 2 * 2 * 4] };
+        assert_eq!(
+            prop_fields(&prop_text(&fields)).unwrap().clear,
+            [[255, 255, 255]]
+        );
+        assert!(
+            prop_fields("[ash]\nclear #FFFFFF")
+                .unwrap_err()
+                .contains("without a #"),
+            "a # starts a comment"
+        );
+        let card = Card {
+            detail: 1,
+            worn: String::new(),
+            name: "ash.prop.png".into(),
+            text: prop_text(&fields),
+            frame: [2, 2],
+            sheet: vec![255; 2 * 2 * 2 * 4],
+        };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, _, kept, solids) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, solids) =
+            pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
-        assert_eq!((kept[0].1[0].0.len(), solids.len()), (2, 2), "each frame has its copy");
-        let alpha = |a: Art| atlas[((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4 + 3) as usize];
-        assert_eq!((alpha(solids[0].0), alpha(solids[0].1)), (255, 0), "white stays in 2D and goes in 3D");
+        assert_eq!(
+            (kept[0].1[0].0.len(), solids.len()),
+            (2, 2),
+            "each frame has its copy"
+        );
+        let alpha = |a: Art| {
+            atlas[((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4
+                + 3) as usize]
+        };
+        assert_eq!(
+            (alpha(solids[0].0), alpha(solids[0].1)),
+            (255, 0),
+            "white stays in 2D and goes in 3D"
+        );
     }
 
     #[test]
@@ -499,20 +693,42 @@ mod tests {
         let fields = prop_fields("[car]\nframes 2\nbroken yes\nstand carve\nviews 2\npaint 102030\ncoat 405060\ncoat 708090").unwrap();
         assert_eq!(prop_fields(&prop_text(&fields)).unwrap(), fields);
         let sheet = [0x10, 0x20, 0x30, 255].repeat((fields.sheet_w(2, 2) * 4) as usize);
-        let card = Card { detail: 1, worn: String::new(), name: "car.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet };
+        let card = Card {
+            detail: 1,
+            worn: String::new(),
+            name: "car.prop.png".into(),
+            text: prop_text(&fields),
+            frame: [2, 2],
+            sheet,
+        };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, _) =
+            pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
         let color = |a: Art| {
-            let i = ((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4) as usize;
+            let i = ((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4)
+                as usize;
             [atlas[i], atlas[i + 1], atlas[i + 2]]
         };
         let coats = &kept[0].1;
-        assert_eq!((coats.len(), color(coats[0].0[0]), color(coats[1].0[1])), (2, [0x40, 0x50, 0x60], [0x70, 0x80, 0x90]));
-        let Some(Stand::Carve { south, .. }) = coats[1].1 else { panic!("{:?}", coats[1].1) };
-        assert_eq!(color(south), [0x70, 0x80, 0x90], "each coat carves from views in its own color");
+        assert_eq!(
+            (coats.len(), color(coats[0].0[0]), color(coats[1].0[1])),
+            (2, [0x40, 0x50, 0x60], [0x70, 0x80, 0x90])
+        );
+        let Some(Stand::Carve { south, .. }) = coats[1].1 else {
+            panic!("{:?}", coats[1].1)
+        };
+        assert_eq!(
+            color(south),
+            [0x70, 0x80, 0x90],
+            "each coat carves from views in its own color"
+        );
         let n = named(&fields, coats.clone());
-        assert_eq!((n.frames.len(), n.coat(1), n.broken_for(n.coat(1)[0])), (2, &[coats[1].0[0]][..], Some(&[coats[1].0[1]][..])), "a coat breaks into its own broken frame");
+        assert_eq!(
+            (n.frames.len(), n.coat(1), n.broken_for(n.coat(1)[0])),
+            (2, &[coats[1].0[0]][..], Some(&[coats[1].0[1]][..])),
+            "a coat breaks into its own broken frame"
+        );
     }
 
     #[test]
@@ -526,16 +742,43 @@ mod tests {
         ] {
             let fields = prop_fields(&format!("[stack]\nstand carve\nviews 2\n{text}")).unwrap();
             assert_eq!(prop_fields(&prop_text(&fields)).unwrap(), fields);
-            assert_eq!(fields.frame_in(fields.sheet_w(4, 3), 5), Some([4, 3]), "{text}");
+            assert_eq!(
+                fields.frame_in(fields.sheet_w(4, 3), 5),
+                Some([4, 3]),
+                "{text}"
+            );
             let sheet = vec![255; (fields.sheet_w(4, 3) * 5 * 4) as usize];
-            let card = Card { detail: 1, worn: String::new(), name: "stack.prop.png".into(), text: prop_text(&fields), frame: [4, 3], sheet };
+            let card = Card {
+                detail: 1,
+                worn: String::new(),
+                name: "stack.prop.png".into(),
+                text: prop_text(&fields),
+                frame: [4, 3],
+                sheet,
+            };
             let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-            let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+            let (notes, rects, _, kept, _) =
+                pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
             assert!(notes.is_empty(), "{notes:?}");
             let views = fields.cells() as u16;
-            assert_eq!(kept[0].1[0].1, Some(Stand::Carve { footprint, roof, south: Art(views), east: Art(views + 1), north, west }), "{text}");
+            assert_eq!(
+                kept[0].1[0].1,
+                Some(Stand::Carve {
+                    footprint,
+                    roof,
+                    south: Art(views),
+                    east: Art(views + 1),
+                    north,
+                    west
+                }),
+                "{text}"
+            );
             let size = |a: Option<Art>| a.map(|a| [rects[a.0 as usize][2], rects[a.0 as usize][3]]);
-            assert_eq!((size(north), size(west)), (north.map(|_| [4, 2]), west.map(|_| [3, 2])), "{text}");
+            assert_eq!(
+                (size(north), size(west)),
+                (north.map(|_| [4, 2]), west.map(|_| [3, 2])),
+                "{text}"
+            );
         }
     }
 
@@ -544,51 +787,164 @@ mod tests {
         let (fw, fh, vh) = (4u32, 3u32, 5u32);
         let fields = prop_fields("[post]\nstand turned\nviews 5").unwrap();
         let sw = fields.sheet_w(fw, fh);
-        let card = Card { detail: 1, worn: String::new(), name: "post.prop.png".into(), text: prop_text(&fields), frame: [fw, fh], sheet: vec![255; (sw * (fh + vh) * 4) as usize] };
+        let card = Card {
+            detail: 1,
+            worn: String::new(),
+            name: "post.prop.png".into(),
+            text: prop_text(&fields),
+            frame: [fw, fh],
+            sheet: vec![255; (sw * (fh + vh) * 4) as usize],
+        };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, _) =
+            pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
-        assert_eq!(rects.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(), [[4, 3], [4, 5], [3, 5]], "the frame, then the south and east views");
-        assert_eq!(kept[0].1, [(vec![Art(0)], Some(Stand::Turned { east: Art(2), depth: None }))]);
+        assert_eq!(
+            rects.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(),
+            [[4, 3], [4, 5], [3, 5]],
+            "the frame, then the south and east views"
+        );
+        assert_eq!(
+            kept[0].1,
+            [(
+                vec![Art(0)],
+                Some(Stand::Turned {
+                    east: Art(2),
+                    depth: None
+                })
+            )]
+        );
         let thin = prop_fields("[post]\nstand turned 2\nviews 5").unwrap();
-        assert_eq!((thin.by_views, prop_fields(&prop_text(&thin)).unwrap()), (Some(ByViews::Turned { depth: Some(2.0) }), thin.clone()));
-        assert!(prop_fields("[post]\nstand turned 0\nviews 5").unwrap_err().contains("depth"));
+        assert_eq!(
+            (thin.by_views, prop_fields(&prop_text(&thin)).unwrap()),
+            (Some(ByViews::Turned { depth: Some(2.0) }), thin.clone())
+        );
+        assert!(
+            prop_fields("[post]\nstand turned 0\nviews 5")
+                .unwrap_err()
+                .contains("depth")
+        );
     }
 
     #[test]
     fn a_prop_reads_and_writes_its_text() {
-        let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n").unwrap();
-        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true, alpha: Vec::new(), paint: Paint::default() });
+        let f = prop_fields(
+            "[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n",
+        )
+        .unwrap();
+        assert_eq!(
+            f,
+            PropFields {
+                id: "rusty_tank".into(),
+                frames: 2,
+                fps: 4.0,
+                open: 1,
+                stand: Some(Stand::Slab {
+                    height: 6.0,
+                    lift: 0.0
+                }),
+                by_views: None,
+                views: 0,
+                footprint: false,
+                roof: false,
+                north: false,
+                west: false,
+                clear: Vec::new(),
+                cover: false,
+                hp: 40.0,
+                broken: true,
+                alpha: Vec::new(),
+                paint: Paint::default()
+            }
+        );
         assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f);
-        assert_eq!(prop_text(&prop_fields("[a]").unwrap()), "[a]\n", "defaults stay out");
+        assert_eq!(
+            prop_text(&prop_fields("[a]").unwrap()),
+            "[a]\n",
+            "defaults stay out"
+        );
         assert!(prop_fields("frames 2").unwrap_err().contains("[id]"));
         assert!(prop_fields("[A]").unwrap_err().contains("lowercase"));
-        assert!(prop_fields("[a]\nwings 2").unwrap_err().starts_with("2: wings"));
-        assert!(prop_fields("[a]\nstand carve").unwrap_err().contains("views under its frames"));
+        assert!(
+            prop_fields("[a]\nwings 2")
+                .unwrap_err()
+                .starts_with("2: wings")
+        );
+        assert!(
+            prop_fields("[a]\nstand carve")
+                .unwrap_err()
+                .contains("views under its frames")
+        );
         let carved = prop_fields("[a]\nframes 2\nstand carve\nviews 12\nfootprint yes").unwrap();
-        assert_eq!((carved.by_views, carved.views, carved.footprint), (Some(ByViews::Carve), 12, true));
+        assert_eq!(
+            (carved.by_views, carved.views, carved.footprint),
+            (Some(ByViews::Carve), 12, true)
+        );
         assert_eq!(prop_fields(&prop_text(&carved)).unwrap(), carved);
-        assert!(prop_fields("[a]\nstand sideways").unwrap_err().contains("a stand is"));
+        assert!(
+            prop_fields("[a]\nstand sideways")
+                .unwrap_err()
+                .contains("a stand is")
+        );
         let folded = prop_fields("[a]\nstand fold 20").unwrap();
-        assert_eq!((folded.stand, prop_fields(&prop_text(&folded)).unwrap().stand), (Some(Stand::Fold { rows: 20.0 }), Some(Stand::Fold { rows: 20.0 })));
+        assert_eq!(
+            (
+                folded.stand,
+                prop_fields(&prop_text(&folded)).unwrap().stand
+            ),
+            (
+                Some(Stand::Fold { rows: 20.0 }),
+                Some(Stand::Fold { rows: 20.0 })
+            )
+        );
         let floating = prop_fields("[a]\nstand slab 1 float 6").unwrap();
-        assert_eq!(floating.stand, Some(Stand::Slab { height: 1.0, lift: 6.0 }));
+        assert_eq!(
+            floating.stand,
+            Some(Stand::Slab {
+                height: 1.0,
+                lift: 6.0
+            })
+        );
         assert_eq!(prop_fields(&prop_text(&floating)).unwrap(), floating);
-        assert!(prop_fields("[a]\nstand slab 1 hover 6").unwrap_err().contains("a stand is"));
+        assert!(
+            prop_fields("[a]\nstand slab 1 hover 6")
+                .unwrap_err()
+                .contains("a stand is")
+        );
         assert!(prop_fields("[a]\nfps nan").is_err());
-        assert!(prop_fields("[a]\ncover maybe").unwrap_err().contains("cover is yes or no"));
-        assert!(prop_fields("[a]").unwrap().cover, "props stop shots unless they say");
+        assert!(
+            prop_fields("[a]\ncover maybe")
+                .unwrap_err()
+                .contains("cover is yes or no")
+        );
+        assert!(
+            prop_fields("[a]").unwrap().cover,
+            "props stop shots unless they say"
+        );
         for bad in ["hp -1", "hp 1001", "hp nan", "hp inf", "hp", "broken 2"] {
-            assert!(prop_fields(&format!("[a]\nframes 2\n{bad}")).unwrap_err().starts_with("3: "), "{bad}");
+            assert!(
+                prop_fields(&format!("[a]\nframes 2\n{bad}"))
+                    .unwrap_err()
+                    .starts_with("3: "),
+                "{bad}"
+            );
         }
-        assert!(prop_fields("[a]\nbroken yes").unwrap_err().contains("2 or more frames"));
+        assert!(
+            prop_fields("[a]\nbroken yes")
+                .unwrap_err()
+                .contains("2 or more frames")
+        );
     }
 
     #[test]
     fn mangled_prop_texts_are_refused_without_panicking() {
-        let good = "[rusty_tank]\nframes 3\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n";
+        let good =
+            "[rusty_tank]\nframes 3\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n";
         prop_fields(good).unwrap();
-        let pieces = ["99999", "1001", "0", "-1", "nan", "inf", "hp", "cover", "broken", "yes", "no", "frames", "stand", "[", "]", "\n", " ", "#"];
+        let pieces = [
+            "99999", "1001", "0", "-1", "nan", "inf", "hp", "cover", "broken", "yes", "no",
+            "frames", "stand", "[", "]", "\n", " ", "#",
+        ];
         let mut rng = crate::rng::Rng::new(7);
         for _ in 0..4000 {
             let mut text = good.to_string();
@@ -601,7 +957,12 @@ mod tests {
                 }
             }
             if let Ok(f) = prop_fields(&text) {
-                assert!(f.hp.is_finite() && (0.0..=MAX_HP).contains(&f.hp) && (!f.broken || f.frames > 1), "{text:?}");
+                assert!(
+                    f.hp.is_finite()
+                        && (0.0..=MAX_HP).contains(&f.hp)
+                        && (!f.broken || f.frames > 1),
+                    "{text:?}"
+                );
                 assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f, "{text:?}");
             }
         }
@@ -610,12 +971,27 @@ mod tests {
     #[test]
     fn props_draw_into_free_rows_and_refuse_bad_sheets() {
         let mut atlas = vec![0u8; (crate::art::ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame, sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize] };
-        let cards = [card("a.prop.png", "[a]\nframes 2", [20, 10], 2), card("b.prop.png", "[a]", [8, 8], 1), card("c.prop.png", "[c]\nframes 3", [8, 8], 2)];
-        let (notes, rects, _, kept, _) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
+        let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card {
+            detail: 1,
+            worn: String::new(),
+            name: name.into(),
+            text: text.into(),
+            frame,
+            sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize],
+        };
+        let cards = [
+            card("a.prop.png", "[a]\nframes 2", [20, 10], 2),
+            card("b.prop.png", "[a]", [8, 8], 1),
+            card("c.prop.png", "[c]\nframes 3", [8, 8], 2),
+        ];
+        let (notes, rects, _, kept, _) =
+            pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].1, [(vec![Art(100), Art(101)], None)]);
         assert_eq!(rects.len(), 2);
-        assert!(notes[0].contains("another prop is [a]") && notes[1].contains("3 across"), "{notes:?}");
+        assert!(
+            notes[0].contains("another prop is [a]") && notes[1].contains("3 across"),
+            "{notes:?}"
+        );
     }
 }

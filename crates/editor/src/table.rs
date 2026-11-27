@@ -27,12 +27,18 @@ fn content(line: &str) -> (&str, &str) {
 }
 
 fn heading(line: &str) -> Option<&str> {
-    content(line).0.strip_prefix('[').and_then(|l| l.strip_suffix(']'))
+    content(line)
+        .0
+        .strip_prefix('[')
+        .and_then(|l| l.strip_suffix(']'))
 }
 
 impl Table {
     pub fn new(file: &str, text: &str) -> Self {
-        Self { file: file.to_string(), text: text.to_string() }
+        Self {
+            file: file.to_string(),
+            text: text.to_string(),
+        }
     }
 
     /// Every section by its heading, with `TOP` first when lines come before any heading.
@@ -51,8 +57,14 @@ impl Table {
     /// The lines of `section`: from its heading, or the top, to the next heading.
     fn span(&self, section: &str) -> Option<(usize, usize)> {
         let lines: Vec<&str> = self.text.lines().collect();
-        let start = if section == TOP { 0 } else { lines.iter().position(|l| heading(l) == Some(section))? + 1 };
-        let end = (start..lines.len()).find(|&i| heading(lines[i]).is_some()).unwrap_or(lines.len());
+        let start = if section == TOP {
+            0
+        } else {
+            lines.iter().position(|l| heading(l) == Some(section))? + 1
+        };
+        let end = (start..lines.len())
+            .find(|&i| heading(lines[i]).is_some())
+            .unwrap_or(lines.len());
         Some((start, end))
     }
 
@@ -60,17 +72,31 @@ impl Table {
     pub fn section_text(&self, section: &str) -> Option<String> {
         let (start, end) = self.span(section)?;
         let lines: Vec<&str> = self.text.lines().collect();
-        Some(lines[start.saturating_sub(1)..end].iter().map(|l| format!("{l}\n")).collect())
+        Some(
+            lines[start.saturating_sub(1)..end]
+                .iter()
+                .map(|l| format!("{l}\n"))
+                .collect(),
+        )
     }
 
     pub fn entries(&self, section: &str) -> Vec<Entry> {
-        let Some((start, end)) = self.span(section) else { return Vec::new() };
+        let Some((start, end)) = self.span(section) else {
+            return Vec::new();
+        };
         let lines: Vec<&str> = self.text.lines().collect();
         (start..end)
             .filter_map(|i| {
                 let (c, comment) = content(lines[i]);
-                let (key, value) = c.split_once(char::is_whitespace).map_or((c, ""), |(k, v)| (k, v.trim()));
-                (!key.is_empty()).then(|| Entry { key: key.into(), value: value.into(), comment: comment.into(), line: i })
+                let (key, value) = c
+                    .split_once(char::is_whitespace)
+                    .map_or((c, ""), |(k, v)| (k, v.trim()));
+                (!key.is_empty()).then(|| Entry {
+                    key: key.into(),
+                    value: value.into(),
+                    comment: comment.into(),
+                    line: i,
+                })
             })
             .collect()
     }
@@ -87,15 +113,23 @@ impl Table {
 
     /// Sets the value of the section's `at`th line, keeping its comment where it was.
     pub fn set(&mut self, section: &str, at: usize, value: &str) -> bool {
-        let Some(e) = self.entries(section).into_iter().nth(at) else { return false };
+        let Some(e) = self.entries(section).into_iter().nth(at) else {
+            return false;
+        };
         self.rewrite(|lines| {
             let old = &lines[e.line];
             let indent = &old[..old.len() - old.trim_start().len()];
             let key = &e.key;
-            let body = if value.is_empty() { key.to_string() } else { format!("{key} {value}") };
+            let body = if value.is_empty() {
+                key.to_string()
+            } else {
+                format!("{key} {value}")
+            };
             let line = match old.find('#') {
                 // The comment keeps its column when the new value leaves room for it.
-                Some(at) if body.len() + indent.len() < at => format!("{indent}{body:<w$}{}", &old[at..], w = at - indent.len()),
+                Some(at) if body.len() + indent.len() < at => {
+                    format!("{indent}{body:<w$}{}", &old[at..], w = at - indent.len())
+                }
                 Some(at) => format!("{indent}{body} {}", &old[at..]),
                 None => format!("{indent}{body}"),
             };
@@ -106,17 +140,33 @@ impl Table {
 
     /// Adds a line at the end of `section`, after its last line.
     pub fn add(&mut self, section: &str, key: &str, value: &str) -> bool {
-        let Some((start, _)) = self.span(section) else { return false };
+        let Some((start, _)) = self.span(section) else {
+            return false;
+        };
         let at = self.entries(section).last().map_or(start, |e| e.line + 1);
-        self.rewrite(|lines| lines.insert(at, if value.is_empty() { key.to_string() } else { format!("{key} {value}") }));
+        self.rewrite(|lines| {
+            lines.insert(
+                at,
+                if value.is_empty() {
+                    key.to_string()
+                } else {
+                    format!("{key} {value}")
+                },
+            )
+        });
         true
     }
 
     /// Adds a copy of `section`'s lines at the end of the file under the heading `[id]`.
     pub fn copy(&mut self, section: &str, id: &str) -> bool {
-        let Some(text) = self.section_text(section) else { return false };
+        let Some(text) = self.section_text(section) else {
+            return false;
+        };
         let body: Vec<&str> = text.lines().skip(usize::from(section != TOP)).collect();
-        let end = body.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1);
+        let end = body
+            .iter()
+            .rposition(|l| !l.trim().is_empty())
+            .map_or(0, |i| i + 1);
         let mut out = self.text.trim_end().to_string();
         out += &format!("\n\n[{id}]\n");
         body[..end].iter().for_each(|l| out += &format!("{l}\n"));
@@ -126,7 +176,9 @@ impl Table {
 
     /// Puts `section`'s heading and lines as `from` has them in place of this table's, or at the end without one.
     pub fn put_section(&mut self, from: &Table, section: &str) -> bool {
-        let Some(text) = from.section_text(section) else { return false };
+        let Some(text) = from.section_text(section) else {
+            return false;
+        };
         if let Some((start, end)) = self.span(section).filter(|_| section != TOP) {
             self.rewrite(|lines| _ = lines.drain(start - 1..end));
         }
@@ -141,7 +193,9 @@ impl Table {
     }
 
     pub fn remove(&mut self, section: &str, at: usize) -> bool {
-        let Some(e) = self.entries(section).into_iter().nth(at) else { return false };
+        let Some(e) = self.entries(section).into_iter().nth(at) else {
+            return false;
+        };
         self.rewrite(|lines| {
             lines.remove(e.line);
         });
@@ -159,7 +213,10 @@ mod put_tests {
         let from = Table::new("ground.txt", "[c]\nname Corn\n\n[k]\nname Cane\n");
         let mut to = Table::new("farms/kd.ground.txt", "");
         assert!(to.put_section(&from, "k") && to.text == "[k]\nname Cane\n");
-        assert!(to.put_section(&from, "c") && to.put_section(&Table::new("x", "[k]\nname Sugar\n"), "k"));
+        assert!(
+            to.put_section(&from, "c")
+                && to.put_section(&Table::new("x", "[k]\nname Sugar\n"), "k")
+        );
         assert_eq!(to.text, "[c]\nname Corn\n\n[k]\nname Sugar\n");
         assert!(!to.put_section(&from, "q"));
     }
@@ -184,7 +241,14 @@ mod tests {
         let t = Table::new("tuning.txt", TEXT);
         assert_eq!(t.sections(), ["", "player", "easy"]);
         let player = t.entries("player");
-        assert_eq!((player[0].key.as_str(), player[0].value.as_str(), player[0].comment.as_str()), ("hp", "100", "health"));
+        assert_eq!(
+            (
+                player[0].key.as_str(),
+                player[0].value.as_str(),
+                player[0].comment.as_str()
+            ),
+            ("hp", "100", "health")
+        );
         assert_eq!(t.entries(TOP)[0].key, "slots");
     }
 

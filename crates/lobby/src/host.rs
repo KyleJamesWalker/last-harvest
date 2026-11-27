@@ -1,7 +1,10 @@
 //! The host's side: it seats clients, keeps the roster, starts the run and closes the room.
 
-use crate::codec::{decode, encode, DecodeError, Message};
-use crate::{Hello, Identity, Member, PeerKey, Player, Refusal, RoomCode, Seat, Settings, Start, MAX_LOCAL_PLAYERS, MAX_SEATS, PROTOCOL};
+use crate::codec::{DecodeError, Message, decode, encode};
+use crate::{
+    Hello, Identity, MAX_LOCAL_PLAYERS, MAX_SEATS, Member, PROTOCOL, PeerKey, Player, Refusal,
+    RoomCode, Seat, Settings, Start,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostConfig {
@@ -17,16 +20,30 @@ pub struct HostConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostEvent {
     /// A client was seated in the lobby.
-    Joined { peer: PeerKey, seats: Vec<Seat> },
-    Refused { peer: PeerKey, reason: Refusal },
+    Joined {
+        peer: PeerKey,
+        seats: Vec<Seat>,
+    },
+    Refused {
+        peer: PeerKey,
+        reason: Refusal,
+    },
     /// A ready mark or a card changed.
     Changed,
     /// A client joined the run in progress: spawn these players.
-    DropIn { peer: PeerKey, players: Vec<Player> },
+    DropIn {
+        peer: PeerKey,
+        players: Vec<Player>,
+    },
     /// A client left; in a run, its players leave with it.
-    Left { peer: PeerKey, seats: Vec<u8> },
+    Left {
+        peer: PeerKey,
+        seats: Vec<u8>,
+    },
     /// Another host answered in this room: pick a new code.
-    CodeTaken { peer: PeerKey },
+    CodeTaken {
+        peer: PeerKey,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,10 +73,31 @@ impl Host {
     /// `me` is the host's own peer, as the transport assigned it.
     pub fn new(code: RoomCode, mut config: HostConfig, me: PeerKey) -> Host {
         config.seats = config.seats.clamp(1, MAX_SEATS);
-        config.cards.truncate(MAX_LOCAL_PLAYERS.min(config.seats as usize));
-        let seats = config.cards.iter().enumerate().map(|(i, card)| Seat { seat: i as u8, card: card.clone() }).collect();
-        let host = Member { peer: me, seats, ready: false, host: true };
-        Host { code, config, members: vec![host], phase: Phase::Lobby, outgoing: Vec::new() }
+        config
+            .cards
+            .truncate(MAX_LOCAL_PLAYERS.min(config.seats as usize));
+        let seats = config
+            .cards
+            .iter()
+            .enumerate()
+            .map(|(i, card)| Seat {
+                seat: i as u8,
+                card: card.clone(),
+            })
+            .collect();
+        let host = Member {
+            peer: me,
+            seats,
+            ready: false,
+            host: true,
+        };
+        Host {
+            code,
+            config,
+            members: vec![host],
+            phase: Phase::Lobby,
+            outgoing: Vec::new(),
+        }
     }
 
     pub fn code(&self) -> RoomCode {
@@ -102,7 +140,11 @@ impl Host {
 
     /// The devices that are not ready, the host included.
     pub fn not_ready(&self) -> Vec<PeerKey> {
-        self.members.iter().filter(|m| !m.ready).map(|m| m.peer).collect()
+        self.members
+            .iter()
+            .filter(|m| !m.ready)
+            .map(|m| m.peer)
+            .collect()
     }
 
     /// Starts the run once everyone is ready, and tells every client.
@@ -149,17 +191,33 @@ impl Host {
         }
         let message = match decode(bytes) {
             Ok(message) => message,
-            Err(DecodeError::Protocol(yours)) => return self.refuse(peer, Refusal::Protocol { host: PROTOCOL, yours }),
+            Err(DecodeError::Protocol(yours)) => {
+                return self.refuse(
+                    peer,
+                    Refusal::Protocol {
+                        host: PROTOCOL,
+                        yours,
+                    },
+                );
+            }
             Err(DecodeError::NotLobby) => return Vec::new(),
-            Err(error) if !self.is_member(peer) => return self.refuse(peer, Refusal::BadHello(format!("{error:?}"))),
+            Err(error) if !self.is_member(peer) => {
+                return self.refuse(peer, Refusal::BadHello(format!("{error:?}")));
+            }
             Err(_) => return Vec::new(),
         };
         match message {
             Message::Hello(hello) if !self.is_member(peer) => self.hello(peer, hello),
-            Message::Ready(ready) if self.phase == Phase::Lobby => self.update(peer, |m| std::mem::replace(&mut m.ready, ready) != ready),
-            Message::Cards(cards) if self.phase == Phase::Lobby => self.update(peer, |m| set_cards(m, &cards)),
+            Message::Ready(ready) if self.phase == Phase::Lobby => {
+                self.update(peer, |m| std::mem::replace(&mut m.ready, ready) != ready)
+            }
+            Message::Cards(cards) if self.phase == Phase::Lobby => {
+                self.update(peer, |m| set_cards(m, &cards))
+            }
             Message::Leave => self.remove(peer),
-            Message::Welcome { .. } | Message::Roster(_) | Message::Start(_) | Message::Closed => vec![HostEvent::CodeTaken { peer }],
+            Message::Welcome { .. } | Message::Roster(_) | Message::Start(_) | Message::Closed => {
+                vec![HostEvent::CodeTaken { peer }]
+            }
             _ => Vec::new(),
         }
     }
@@ -172,19 +230,42 @@ impl Host {
         if let Some(refusal) = self.check(&hello) {
             return self.refuse(peer, refusal);
         }
-        let taken: Vec<u8> = self.members.iter().flat_map(|m| m.seats.iter().map(|s| s.seat)).collect();
+        let taken: Vec<u8> = self
+            .members
+            .iter()
+            .flat_map(|m| m.seats.iter().map(|s| s.seat))
+            .collect();
         let seats: Vec<Seat> = (0..self.config.seats)
             .filter(|s| !taken.contains(s))
             .zip(hello.cards)
             .map(|(seat, card)| Seat { seat, card })
             .collect();
-        let member = Member { peer, seats: seats.clone(), ready: false, host: false };
+        let member = Member {
+            peer,
+            seats: seats.clone(),
+            ready: false,
+            host: false,
+        };
         let seat_ids = seats.iter().map(|s| s.seat).collect();
         self.members.push(member.clone());
         let running = matches!(self.phase, Phase::Running(_));
-        self.send(peer, &Message::Welcome { room: self.code.to_string(), seats: seat_ids, running });
+        self.send(
+            peer,
+            &Message::Welcome {
+                room: self.code.to_string(),
+                seats: seat_ids,
+                running,
+            },
+        );
         if let Phase::Running(start) = &mut self.phase {
-            let players: Vec<Player> = seats.iter().map(|s| Player { seat: s.seat, peer, card: s.card.clone() }).collect();
+            let players: Vec<Player> = seats
+                .iter()
+                .map(|s| Player {
+                    seat: s.seat,
+                    peer,
+                    card: s.card.clone(),
+                })
+                .collect();
             start.players.extend(players.iter().cloned());
             start.players.sort_by_key(|p| p.seat);
             let start = start.clone();
@@ -199,18 +280,44 @@ impl Host {
     fn check(&self, hello: &Hello) -> Option<Refusal> {
         let (host, yours) = (&self.config.identity, &hello.identity);
         if hello.cards.is_empty() || hello.cards.len() > MAX_LOCAL_PLAYERS {
-            return Some(Refusal::BadHello(format!("{} local players; a device seats 1 to {MAX_LOCAL_PLAYERS}", hello.cards.len())));
+            return Some(Refusal::BadHello(format!(
+                "{} local players; a device seats 1 to {MAX_LOCAL_PLAYERS}",
+                hello.cards.len()
+            )));
         }
         if host.game_version != yours.game_version {
-            return Some(Refusal::Version { host: host.game_version.clone(), yours: yours.game_version.clone() });
+            return Some(Refusal::Version {
+                host: host.game_version.clone(),
+                yours: yours.game_version.clone(),
+            });
         }
-        let find = |mods: &[crate::ModPack], name: &str| mods.iter().find(|m| m.name == name).map(|m| m.fingerprint);
-        let missing: Vec<String> = host.mods.iter().filter(|m| find(&yours.mods, &m.name).is_none()).map(|m| m.name.clone()).collect();
-        let extra: Vec<String> = yours.mods.iter().filter(|m| find(&host.mods, &m.name).is_none()).map(|m| m.name.clone()).collect();
-        let different: Vec<String> =
-            host.mods.iter().filter(|m| find(&yours.mods, &m.name).is_some_and(|f| f != m.fingerprint)).map(|m| m.name.clone()).collect();
+        let find = |mods: &[crate::ModPack], name: &str| {
+            mods.iter().find(|m| m.name == name).map(|m| m.fingerprint)
+        };
+        let missing: Vec<String> = host
+            .mods
+            .iter()
+            .filter(|m| find(&yours.mods, &m.name).is_none())
+            .map(|m| m.name.clone())
+            .collect();
+        let extra: Vec<String> = yours
+            .mods
+            .iter()
+            .filter(|m| find(&host.mods, &m.name).is_none())
+            .map(|m| m.name.clone())
+            .collect();
+        let different: Vec<String> = host
+            .mods
+            .iter()
+            .filter(|m| find(&yours.mods, &m.name).is_some_and(|f| f != m.fingerprint))
+            .map(|m| m.name.clone())
+            .collect();
         if !(missing.is_empty() && extra.is_empty() && different.is_empty()) {
-            return Some(Refusal::Mods { missing, extra, different });
+            return Some(Refusal::Mods {
+                missing,
+                extra,
+                different,
+            });
         }
         if host.pak != yours.pak {
             return Some(Refusal::Pak);
@@ -221,7 +328,10 @@ impl Host {
         let used: usize = self.members.iter().map(|m| m.seats.len()).sum();
         let free = self.config.seats as usize - used;
         if hello.cards.len() > free {
-            return Some(Refusal::Full { free: free as u8, asked: hello.cards.len() as u8 });
+            return Some(Refusal::Full {
+                free: free as u8,
+                asked: hello.cards.len() as u8,
+            });
         }
         None
     }
@@ -231,8 +341,14 @@ impl Host {
         vec![HostEvent::Refused { peer, reason }]
     }
 
-    fn update(&mut self, peer: PeerKey, change: impl FnOnce(&mut Member) -> bool) -> Vec<HostEvent> {
-        let Some(member) = self.members.iter_mut().find(|m| m.peer == peer) else { return Vec::new() };
+    fn update(
+        &mut self,
+        peer: PeerKey,
+        change: impl FnOnce(&mut Member) -> bool,
+    ) -> Vec<HostEvent> {
+        let Some(member) = self.members.iter_mut().find(|m| m.peer == peer) else {
+            return Vec::new();
+        };
         if !change(member) {
             return Vec::new();
         }
@@ -241,14 +357,27 @@ impl Host {
     }
 
     fn remove(&mut self, peer: PeerKey) -> Vec<HostEvent> {
-        let Some(index) = self.members.iter().position(|m| m.peer == peer).filter(|&i| i > 0) else { return Vec::new() };
+        let Some(index) = self
+            .members
+            .iter()
+            .position(|m| m.peer == peer)
+            .filter(|&i| i > 0)
+        else {
+            return Vec::new();
+        };
         let member = self.members.remove(index);
         let seats: Vec<u8> = member.seats.iter().map(|s| s.seat).collect();
         match &mut self.phase {
             Phase::Lobby => self.send_roster(),
             Phase::Running(start) => {
                 start.players.retain(|p| p.peer != peer);
-                self.broadcast(&Message::Left { peer, seats: seats.clone() }, None);
+                self.broadcast(
+                    &Message::Left {
+                        peer,
+                        seats: seats.clone(),
+                    },
+                    None,
+                );
             }
             Phase::Closed => {}
         }
@@ -256,8 +385,17 @@ impl Host {
     }
 
     fn players(&self) -> Vec<Player> {
-        let mut players: Vec<Player> =
-            self.members.iter().flat_map(|m| m.seats.iter().map(|s| Player { seat: s.seat, peer: m.peer, card: s.card.clone() })).collect();
+        let mut players: Vec<Player> = self
+            .members
+            .iter()
+            .flat_map(|m| {
+                m.seats.iter().map(|s| Player {
+                    seat: s.seat,
+                    peer: m.peer,
+                    card: s.card.clone(),
+                })
+            })
+            .collect();
         players.sort_by_key(|p| p.seat);
         players
     }

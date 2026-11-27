@@ -24,7 +24,10 @@ pub fn start(config: &Config) -> Result<u16, String> {
 /// Serves `config` until the process ends.
 pub fn run(config: &Config) -> Result<(), String> {
     let port = start(config)?;
-    println!("Ready! Port {port}, allowed origins: {}", config.allowed_origins.join(", "));
+    println!(
+        "Ready! Port {port}, allowed origins: {}",
+        config.allowed_origins.join(", ")
+    );
     loop {
         std::thread::park();
     }

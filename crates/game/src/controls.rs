@@ -4,8 +4,21 @@
 use crate::Buttons;
 
 /// The buttons a player can move, in the order a save lists them.
-pub const BINDABLE: [Buttons; 10] = [Buttons::A, Buttons::B, Buttons::X, Buttons::Y, Buttons::L1, Buttons::R1, Buttons::L2, Buttons::R2, Buttons::SELECT, Buttons::START];
-const KEYS: [&str; 10] = ["a", "b", "x", "y", "l1", "r1", "l2", "r2", "select", "start"];
+pub const BINDABLE: [Buttons; 10] = [
+    Buttons::A,
+    Buttons::B,
+    Buttons::X,
+    Buttons::Y,
+    Buttons::L1,
+    Buttons::R1,
+    Buttons::L2,
+    Buttons::R2,
+    Buttons::SELECT,
+    Buttons::START,
+];
+const KEYS: [&str; 10] = [
+    "a", "b", "x", "y", "l1", "r1", "l2", "r2", "select", "start",
+];
 
 /// Each game button's job, in the order the Controls page lists them.
 pub const ACTIONS: [(Buttons, &str); 10] = [
@@ -74,7 +87,11 @@ impl Controls {
 
     /// The pad button for each game button in `BINDABLE` order, as a save writes it.
     pub fn key(self) -> String {
-        self.0.iter().map(|&i| KEYS[i as usize]).collect::<Vec<_>>().join(" ")
+        self.0
+            .iter()
+            .map(|&i| KEYS[i as usize])
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// A `key`, if it names every pad button once.
@@ -106,19 +123,35 @@ mod tests {
             assert_eq!(c.physical(b), b);
             assert_eq!(c.apply(b), b);
         }
-        assert_eq!(c.apply(Buttons::UP | Buttons::HOME), Buttons::UP | Buttons::HOME, "the d-pad and system keys never move");
+        assert_eq!(
+            c.apply(Buttons::UP | Buttons::HOME),
+            Buttons::UP | Buttons::HOME,
+            "the d-pad and system keys never move"
+        );
     }
 
     #[test]
     fn binding_a_taken_button_swaps_the_two() {
         let mut c = Controls::default();
-        assert_eq!(c.bind(Buttons::X, Buttons::R1), Some(Buttons::R1), "R1 had its own job");
+        assert_eq!(
+            c.bind(Buttons::X, Buttons::R1),
+            Some(Buttons::R1),
+            "R1 had its own job"
+        );
         assert_eq!(c.physical(Buttons::X), Buttons::R1);
-        assert_eq!(c.physical(Buttons::R1), Buttons::X, "and takes X's old button");
+        assert_eq!(
+            c.physical(Buttons::R1),
+            Buttons::X,
+            "and takes X's old button"
+        );
         assert_eq!(c.apply(Buttons::R1 | Buttons::UP), Buttons::X | Buttons::UP);
         assert_eq!(c.apply(Buttons::X), Buttons::R1);
         assert_eq!(c.bind(Buttons::X, Buttons::R1), None, "already there");
-        assert_eq!(c.bind(Buttons::UP, Buttons::R1), None, "the d-pad can't move");
+        assert_eq!(
+            c.bind(Buttons::UP, Buttons::R1),
+            None,
+            "the d-pad can't move"
+        );
         assert!(!c.is_default());
     }
 
@@ -129,7 +162,13 @@ mod tests {
         c.bind(Buttons::START, Buttons::L2);
         assert_eq!(c.key(), "b a x y l1 r1 start r2 select l2");
         assert_eq!(Controls::from_key(&c.key()), Some(c));
-        for bad in ["", "a b x y l1 r1 l2 r2 select", "a a x y l1 r1 l2 r2 select start", "a b x y l1 r1 l2 r2 select start up", "a b x y l1 r1 l2 r2 select home"] {
+        for bad in [
+            "",
+            "a b x y l1 r1 l2 r2 select",
+            "a a x y l1 r1 l2 r2 select start",
+            "a b x y l1 r1 l2 r2 select start up",
+            "a b x y l1 r1 l2 r2 select home",
+        ] {
             assert_eq!(Controls::from_key(bad), None, "{bad:?}");
         }
     }

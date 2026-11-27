@@ -68,7 +68,10 @@ impl Config {
         let mut config = Config {
             port: 8080,
             healthcheck: false,
-            allowed_origins: parse_origins(&var("LAST_HARVEST_RELAY_ALLOWED_ORIGINS").unwrap_or_else(|| DEFAULT_ORIGINS.to_string())),
+            allowed_origins: parse_origins(
+                &var("LAST_HARVEST_RELAY_ALLOWED_ORIGINS")
+                    .unwrap_or_else(|| DEFAULT_ORIGINS.to_string()),
+            ),
             max_clients: 128,
             max_connections: 256,
             max_per_address: 16,
@@ -87,30 +90,47 @@ impl Config {
             config.turn_lifetime = Duration::from_secs(seconds);
         }
         if let Some(port) = var("LAST_HARVEST_RELAY_PORT") {
-            config.port = port.parse().map_err(|_| format!("LAST_HARVEST_RELAY_PORT: not a port: {port}"))?;
+            config.port = port
+                .parse()
+                .map_err(|_| format!("LAST_HARVEST_RELAY_PORT: not a port: {port}"))?;
         }
         if let Some(max) = var("LAST_HARVEST_RELAY_MAX_CLIENTS") {
-            config.max_clients = max.parse().map_err(|_| format!("LAST_HARVEST_RELAY_MAX_CLIENTS: not a number: {max}"))?;
+            config.max_clients = max
+                .parse()
+                .map_err(|_| format!("LAST_HARVEST_RELAY_MAX_CLIENTS: not a number: {max}"))?;
         }
         if let Some(max) = var("LAST_HARVEST_RELAY_MAX_CONNECTIONS") {
-            config.max_connections = max.parse().map_err(|_| format!("LAST_HARVEST_RELAY_MAX_CONNECTIONS: not a number: {max}"))?;
+            config.max_connections = max
+                .parse()
+                .map_err(|_| format!("LAST_HARVEST_RELAY_MAX_CONNECTIONS: not a number: {max}"))?;
         }
         if let Some(max) = var("LAST_HARVEST_RELAY_MAX_PER_ADDRESS") {
-            config.max_per_address = max.parse().map_err(|_| format!("LAST_HARVEST_RELAY_MAX_PER_ADDRESS: not a number: {max}"))?;
+            config.max_per_address = max
+                .parse()
+                .map_err(|_| format!("LAST_HARVEST_RELAY_MAX_PER_ADDRESS: not a number: {max}"))?;
         }
         if let Some(max) = var("LAST_HARVEST_RELAY_MAX_PEERS_PER_ADDRESS") {
-            config.max_peers_per_address = max.parse().map_err(|_| format!("LAST_HARVEST_RELAY_MAX_PEERS_PER_ADDRESS: not a number: {max}"))?;
+            config.max_peers_per_address = max.parse().map_err(|_| {
+                format!("LAST_HARVEST_RELAY_MAX_PEERS_PER_ADDRESS: not a number: {max}")
+            })?;
         }
         if let Some(seconds) = var("LAST_HARVEST_RELAY_LONELY_SECONDS") {
-            let seconds = seconds.parse().map_err(|_| format!("LAST_HARVEST_RELAY_LONELY_SECONDS: not a number: {seconds}"))?;
+            let seconds = seconds.parse().map_err(|_| {
+                format!("LAST_HARVEST_RELAY_LONELY_SECONDS: not a number: {seconds}")
+            })?;
             config.lonely_timeout = Duration::from_secs(seconds);
         }
         if let Some(rate) = var("LAST_HARVEST_RELAY_CONNECTS_PER_MINUTE") {
-            config.connects_per_minute = rate.parse().map_err(|_| format!("LAST_HARVEST_RELAY_CONNECTS_PER_MINUTE: not a number: {rate}"))?;
+            config.connects_per_minute = rate.parse().map_err(|_| {
+                format!("LAST_HARVEST_RELAY_CONNECTS_PER_MINUTE: not a number: {rate}")
+            })?;
         }
         if let Some(trusted) = var("LAST_HARVEST_RELAY_TRUSTED_PROXIES") {
-            config.trusted_proxies = TrustedProxies::parse(&trusted)
-                .ok_or_else(|| format!("LAST_HARVEST_RELAY_TRUSTED_PROXIES: not none, loopback or private: {trusted}"))?;
+            config.trusted_proxies = TrustedProxies::parse(&trusted).ok_or_else(|| {
+                format!(
+                    "LAST_HARVEST_RELAY_TRUSTED_PROXIES: not none, loopback or private: {trusted}"
+                )
+            })?;
         }
 
         let mut args = env::args().skip(1);
@@ -118,7 +138,9 @@ impl Config {
             match arg.as_str() {
                 "--port" => {
                     let value = args.next().ok_or(USAGE)?;
-                    config.port = value.parse().map_err(|_| format!("--port: not a port: {value}"))?;
+                    config.port = value
+                        .parse()
+                        .map_err(|_| format!("--port: not a port: {value}"))?;
                 }
                 "--healthcheck" => config.healthcheck = true,
                 _ => return Err(USAGE.to_string()),
@@ -150,7 +172,11 @@ impl Config {
 
     /// The relay a game runs to host on its own network: `embedded`, serving only local-network clients, one room.
     pub fn lan_host(port: u16) -> Config {
-        Config { lan_only: true, max_rooms: Some(1), ..Config::embedded(port) }
+        Config {
+            lan_only: true,
+            max_rooms: Some(1),
+            ..Config::embedded(port)
+        }
     }
 
     /// Whether a request with this `Origin` header may proceed.
@@ -171,7 +197,10 @@ fn normalize_origin(origin: &str) -> String {
 }
 
 fn parse_origins(list: &str) -> Vec<String> {
-    list.split(',').map(normalize_origin).filter(|o| !o.is_empty()).collect()
+    list.split(',')
+        .map(normalize_origin)
+        .filter(|o| !o.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -180,7 +209,10 @@ mod tests {
 
     #[test]
     fn origins() {
-        let c = Config { allowed_origins: parse_origins("https://game.example.com,http://localhost:8095"), ..Config::embedded(0) };
+        let c = Config {
+            allowed_origins: parse_origins("https://game.example.com,http://localhost:8095"),
+            ..Config::embedded(0)
+        };
         assert!(c.origin_allowed(Some("https://game.example.com")));
         assert!(c.origin_allowed(Some("HTTPS://Game.Example.com/")));
         assert!(c.origin_allowed(Some("http://localhost:8095")));
@@ -188,7 +220,10 @@ mod tests {
         assert!(!c.origin_allowed(Some("https://evil.example")));
         assert!(c.origin_allowed(None));
 
-        let any = Config { allowed_origins: parse_origins(" * "), ..Config::embedded(0) };
+        let any = Config {
+            allowed_origins: parse_origins(" * "),
+            ..Config::embedded(0)
+        };
         assert!(any.origin_allowed(None));
         assert!(any.origin_allowed(Some("https://evil.example")));
     }

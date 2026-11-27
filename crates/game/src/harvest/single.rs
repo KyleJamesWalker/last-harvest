@@ -1,8 +1,8 @@
 //! Single-screen play: the 3D view fills the top screen, and the map takes its place while L1 is held or L2
 //! aims a grenade in slowed time.
 
+use super::{Harvest, Phase, len, map_scale, view_h, view_w};
 use crate::fmath as fm;
-use super::{Harvest, Phase, map_scale, view_h, view_w, len};
 use crate::input::{Buttons, Input};
 use crate::sfx::Sfx;
 use crate::{Align, Canvas, Frame, SCREEN_H, SCREEN_W};
@@ -57,7 +57,12 @@ impl Harvest {
 
     /// The input the run sees and the game time that passes: L2 and R2 never turn, a touch in play only throws
     /// from the held-up map with `touch_aim`, and while aiming the walk is held and the world slows.
-    pub(super) fn single_input(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> (Input, f32) {
+    pub(super) fn single_input(
+        &mut self,
+        input: &Input,
+        dt: f32,
+        sounds: &mut Vec<Sfx>,
+    ) -> (Input, f32) {
         let mut own = without(*input, Buttons::L2 | Buttons::R2);
         self.since_throw += dt;
         let playing = matches!(self.phase, Phase::Playing) && self.menu.is_none();
@@ -79,7 +84,10 @@ impl Harvest {
         if input.held.contains(Buttons::L1) || (self.touch_aim && self.touch_map) {
             self.aiming = None;
             self.glance = true;
-            if let Some(at) = input.touch.filter(|_| self.glance && self.touch_aim && input.touch_started) {
+            if let Some(at) = input
+                .touch
+                .filter(|_| self.glance && self.touch_aim && input.touch_started)
+            {
                 self.throw(at, sounds);
             }
             return (own, dt);
@@ -87,7 +95,12 @@ impl Harvest {
         if input.pressed.contains(Buttons::L2) && !self.touch_aim {
             if self.me().grenades >= 1.0 {
                 let t = crate::tuning::tuning();
-                self.aiming = Some(Aiming { at: self.default_target(), left: t.aim_window, walk: input.dir(), steer: false });
+                self.aiming = Some(Aiming {
+                    at: self.default_target(),
+                    left: t.aim_window,
+                    walk: input.dir(),
+                    steer: false,
+                });
             } else {
                 sounds.push(Sfx::Miss);
             }
@@ -106,7 +119,10 @@ impl Harvest {
         aim.steer |= len([d[0] - aim.walk[0], d[1] - aim.walk[1]]) > 0.3;
         let d = if aim.steer { d } else { [0.0; 2] };
         let mouse = [input.yaw * AIM_MOUSE, input.pitch * AIM_MOUSE];
-        aim.at = self.on_view([aim.at[0] + d[0] * t.aim_speed * dt + mouse[0], aim.at[1] + d[1] * t.aim_speed * dt + mouse[1]]);
+        aim.at = self.on_view([
+            aim.at[0] + d[0] * t.aim_speed * dt + mouse[0],
+            aim.at[1] + d[1] * t.aim_speed * dt + mouse[1],
+        ]);
         aim.left -= dt;
         if !input.held.contains(Buttons::L2) || aim.left <= 0.0 {
             self.aiming = None;
@@ -117,7 +133,13 @@ impl Harvest {
             return (own, dt);
         }
         self.aiming = Some(aim);
-        let own = Input { stick: aim.walk, look: 0.0, yaw: 0.0, pitch: 0.0, ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B) };
+        let own = Input {
+            stick: aim.walk,
+            look: 0.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B)
+        };
         (own, dt * t.aim_slow)
     }
 
@@ -125,26 +147,43 @@ impl Harvest {
     /// `aim_memory` seconds, else straight ahead `aim_ahead` away.
     fn default_target(&self) -> [f32; 2] {
         let t = crate::tuning::tuning();
-        let [turn, dist] = self.last_throw.filter(|_| self.since_throw < t.aim_memory).unwrap_or([0.0, t.aim_ahead]);
+        let [turn, dist] = self
+            .last_throw
+            .filter(|_| self.since_throw < t.aim_memory)
+            .unwrap_or([0.0, t.aim_ahead]);
         let a = self.me().view_yaw + turn;
-        self.on_view([self.me().pos[0] + fm::cos(a) * dist, self.me().pos[1] + fm::sin(a) * dist])
+        self.on_view([
+            self.me().pos[0] + fm::cos(a) * dist,
+            self.me().pos[1] + fm::sin(a) * dist,
+        ])
     }
 
     /// A map point kept within the map view around the player.
     fn on_view(&self, p: [f32; 2]) -> [f32; 2] {
         let cam = self.camera();
-        [p[0].clamp(cam[0], cam[0] + view_w()), p[1].clamp(cam[1], cam[1] + view_h())]
+        [
+            p[0].clamp(cam[0], cam[0] + view_w()),
+            p[1].clamp(cam[1], cam[1] + view_h()),
+        ]
     }
 
     fn map_up(&self) -> bool {
-        self.aiming.is_some() || self.glance || self.menu.is_some() || self.photo_by_other() || matches!(self.phase, Phase::LevelUp { .. }) || self.eye().picking()
+        self.aiming.is_some()
+            || self.glance
+            || self.menu.is_some()
+            || self.photo_by_other()
+            || matches!(self.phase, Phase::LevelUp { .. })
+            || self.eye().picking()
     }
 
     /// The cursor, its blast ring and the time left, over the map.
     pub(super) fn aim_mark(&self, c: &mut Canvas, cam: [f32; 2]) {
         let Some(aim) = self.aiming else { return };
         let t = crate::tuning::tuning();
-        let (x, y) = ((aim.at[0] - cam[0]) * map_scale(), (aim.at[1] - cam[1]) * map_scale());
+        let (x, y) = (
+            (aim.at[0] - cam[0]) * map_scale(),
+            (aim.at[1] - cam[1]) * map_scale(),
+        );
         let red = [1.0, 0.25, 0.2, 0.9];
         let r = t.grenade_radius * map_scale();
         for k in 0..24 {
@@ -172,7 +211,10 @@ impl Harvest {
         if self.corner_map && t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
-            let cam = [self.eye().pos[0] - reach, self.eye().pos[1] - 8.0 - reach * 0.75];
+            let cam = [
+                self.eye().pos[0] - reach,
+                self.eye().pos[1] - 8.0 - reach * 0.75,
+            ];
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
@@ -204,7 +246,14 @@ impl Harvest {
         f.bottom = Canvas::default();
         f.bottom.clear = [0.0, 0.0, 0.0, 1.0];
         let dim = [1.0, 1.0, 1.0, 0.45];
-        f.bottom.label("One screen: Settings > Screens brings this one back", SCREEN_W / 2.0, SCREEN_H / 2.0 - 30.0, 32.0, dim, Align::Center);
+        f.bottom.label(
+            "One screen: Settings > Screens brings this one back",
+            SCREEN_W / 2.0,
+            SCREEN_H / 2.0 - 30.0,
+            32.0,
+            dim,
+            Align::Center,
+        );
         f.bottom.hint("Hold {L1}: map.   {L2}: aim a grenade, release to throw, {B} cancels.   {R1}: throw ahead", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
     }
 }
@@ -226,14 +275,29 @@ mod tests {
     fn hold(h: &mut Harvest, held: Buttons, secs: f32) -> Vec<Sfx> {
         let mut sounds = Vec::new();
         for _ in 0..(secs / DT).round() as usize {
-            h.update(&Input { held, ..Default::default() }, DT, &mut sounds);
+            h.update(
+                &Input {
+                    held,
+                    ..Default::default()
+                },
+                DT,
+                &mut sounds,
+            );
         }
         sounds
     }
 
     fn press(h: &mut Harvest, held: Buttons, pressed: Buttons) -> Vec<Sfx> {
         let mut sounds = Vec::new();
-        h.update(&Input { held, pressed, ..Default::default() }, DT, &mut sounds);
+        h.update(
+            &Input {
+                held,
+                pressed,
+                ..Default::default()
+            },
+            DT,
+            &mut sounds,
+        );
         sounds
     }
 
@@ -251,13 +315,27 @@ mod tests {
         press(&mut h, Buttons::L2 | Buttons::UP, Buttons::L2 | Buttons::UP);
         let at = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
-        assert!(len([at[0] - start[0] - ahead, at[1] - start[1]]) < 1.0, "starts straight ahead: {at:?}");
+        assert!(
+            len([at[0] - start[0] - ahead, at[1] - start[1]]) < 1.0,
+            "starts straight ahead: {at:?}"
+        );
         hold(&mut h, Buttons::L2 | Buttons::UP, 0.5);
-        assert_eq!(h.aiming.map(|a| a.at), Some(at), "holding the run's direction leaves the cursor");
+        assert_eq!(
+            h.aiming.map(|a| a.at),
+            Some(at),
+            "holding the run's direction leaves the cursor"
+        );
         hold(&mut h, Buttons::L2, 0.5);
         let slow = crate::tuning::tuning().aim_slow;
-        assert!((h.t - t - (1.0 + DT) * slow).abs() < 0.02, "time ran at {}", (h.t - t) / (1.0 + DT));
-        assert!(h.me().pos[0] > start[0] + 1.0, "kept walking along the heading");
+        assert!(
+            (h.t - t - (1.0 + DT) * slow).abs() < 0.02,
+            "time ran at {}",
+            (h.t - t) / (1.0 + DT)
+        );
+        assert!(
+            h.me().pos[0] > start[0] + 1.0,
+            "kept walking along the heading"
+        );
         assert!(h.thrown.is_empty());
         hold(&mut h, Buttons::NONE, DT);
         assert_eq!(h.thrown.len(), 1);
@@ -278,9 +356,21 @@ mod tests {
         let mut h = single(12);
         press(&mut h, Buttons::L2, Buttons::L2);
         let (at, yaw) = (h.aiming.unwrap().at, h.me().view_yaw);
-        h.update(&Input { held: Buttons::L2, yaw: 0.05, pitch: -0.05, ..Default::default() }, DT, &mut Vec::new());
+        h.update(
+            &Input {
+                held: Buttons::L2,
+                yaw: 0.05,
+                pitch: -0.05,
+                ..Default::default()
+            },
+            DT,
+            &mut Vec::new(),
+        );
         let now = h.aiming.unwrap().at;
-        assert!(now[0] > at[0] + 10.0 && now[1] < at[1] - 10.0, "right and up: {at:?} -> {now:?}");
+        assert!(
+            now[0] > at[0] + 10.0 && now[1] < at[1] - 10.0,
+            "right and up: {at:?} -> {now:?}"
+        );
         assert_eq!(h.me().view_yaw, yaw);
     }
 
@@ -312,7 +402,11 @@ mod tests {
     fn the_window_running_out_throws_at_the_cursor() {
         let mut h = single(12);
         press(&mut h, Buttons::L2, Buttons::L2);
-        hold(&mut h, Buttons::L2, crate::tuning::tuning().aim_window + 0.1);
+        hold(
+            &mut h,
+            Buttons::L2,
+            crate::tuning::tuning().aim_window + 0.1,
+        );
         assert_eq!(h.thrown.len(), 1);
         assert!(h.aiming.is_none());
     }
@@ -332,14 +426,27 @@ mod tests {
         press(&mut h, Buttons::L2, Buttons::L2);
         let again = h.aiming.unwrap().at;
         let turned = [-off[1], off[0]];
-        assert!(len([again[0] - h.me().pos[0] - turned[0], again[1] - h.me().pos[1] - turned[1]]) < 1.5, "{again:?} vs {turned:?}");
+        assert!(
+            len([
+                again[0] - h.me().pos[0] - turned[0],
+                again[1] - h.me().pos[1] - turned[1]
+            ]) < 1.5,
+            "{again:?} vs {turned:?}"
+        );
         hold(&mut h, Buttons::NONE, DT);
-        hold(&mut h, Buttons::NONE, crate::tuning::tuning().aim_memory + 0.5);
+        hold(
+            &mut h,
+            Buttons::NONE,
+            crate::tuning::tuning().aim_memory + 0.5,
+        );
         h.me_mut().grenades = 1.0;
         press(&mut h, Buttons::L2, Buttons::L2);
         let late = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
-        assert!(len([late[0] - h.me().pos[0], late[1] - h.me().pos[1] - ahead]) < 1.0, "back to straight ahead: {late:?}");
+        assert!(
+            len([late[0] - h.me().pos[0], late[1] - h.me().pos[1] - ahead]) < 1.0,
+            "back to straight ahead: {late:?}"
+        );
     }
 
     #[test]
@@ -353,11 +460,22 @@ mod tests {
         assert!(h.glance, "it stays up with nothing held");
         assert!(h.t - t > 0.5, "no slow motion");
         let mut sounds = Vec::new();
-        h.update(&Input { touch: Some([700.0, 300.0]), touch_started: true, ..Default::default() }, DT, &mut sounds);
+        h.update(
+            &Input {
+                touch: Some([700.0, 300.0]),
+                touch_started: true,
+                ..Default::default()
+            },
+            DT,
+            &mut sounds,
+        );
         assert_eq!(h.thrown.len(), 1);
         press(&mut h, Buttons::L2, Buttons::L2);
         hold(&mut h, Buttons::NONE, DT);
-        assert!(!h.glance && h.thrown.len() == 1, "a second press puts the 3D view back, and never throws");
+        assert!(
+            !h.glance && h.thrown.len() == 1,
+            "a second press puts the 3D view back, and never throws"
+        );
     }
 
     #[test]
@@ -393,8 +511,15 @@ mod tests {
             h.draw(&mut f, false);
             f.top.shapes
         };
-        let has = |s: &[crate::Shape], art: crate::art::Art| s.iter().any(|x| matches!(x, crate::Shape::Art { art: a, .. } if *a == art));
-        let clips = |s: &[crate::Shape]| s.iter().filter(|x| matches!(x, crate::Shape::Clip { rect: Some(_) })).count();
+        let has = |s: &[crate::Shape], art: crate::art::Art| {
+            s.iter()
+                .any(|x| matches!(x, crate::Shape::Art { art: a, .. } if *a == art))
+        };
+        let clips = |s: &[crate::Shape]| {
+            s.iter()
+                .filter(|x| matches!(x, crate::Shape::Clip { rect: Some(_) }))
+                .count()
+        };
         let top = shapes(&h);
         assert_eq!(clips(&top), 1, "the corner map");
         assert!(has(&top, crate::art::GRENADE), "the grenades");
@@ -421,13 +546,43 @@ mod tests {
         h.t = super::super::dawn() + 1.0;
         h.map.home = [h.me().pos[0] + 2000.0, h.me().pos[1] + 1500.0];
         let top = draw(&h);
-        let [x, y, w, ht] = top.iter().find_map(|s| if let crate::Shape::Clip { rect: Some(r) } = s { Some(*r) } else { None }).expect("the corner map");
-        let home = top.iter().find_map(|s| if let crate::Shape::Text { text, x, y, .. } = s { (text == "HOME").then_some([*x, *y]) } else { None }).expect("home on the corner map");
-        assert!((x..x + w).contains(&home[0]) && (y..y + ht).contains(&home[1]), "{home:?} in {:?}", [x, y, w, ht]);
+        let [x, y, w, ht] = top
+            .iter()
+            .find_map(|s| {
+                if let crate::Shape::Clip { rect: Some(r) } = s {
+                    Some(*r)
+                } else {
+                    None
+                }
+            })
+            .expect("the corner map");
+        let home = top
+            .iter()
+            .find_map(|s| {
+                if let crate::Shape::Text { text, x, y, .. } = s {
+                    (text == "HOME").then_some([*x, *y])
+                } else {
+                    None
+                }
+            })
+            .expect("home on the corner map");
+        assert!(
+            (x..x + w).contains(&home[0]) && (y..y + ht).contains(&home[1]),
+            "{home:?} in {:?}",
+            [x, y, w, ht]
+        );
         h.set_corner_map(false);
         let off = draw(&h);
-        assert!(!off.iter().any(|s| matches!(s, crate::Shape::Clip { rect: Some(_) })), "no corner map");
-        assert!(off.iter().any(|s| matches!(s, crate::Shape::Art { art, .. } if *art == crate::art::GRENADE)), "the grenades stay");
+        assert!(
+            !off.iter()
+                .any(|s| matches!(s, crate::Shape::Clip { rect: Some(_) })),
+            "no corner map"
+        );
+        assert!(
+            off.iter()
+                .any(|s| matches!(s, crate::Shape::Art { art, .. } if *art == crate::art::GRENADE)),
+            "the grenades stay"
+        );
     }
 
     #[test]

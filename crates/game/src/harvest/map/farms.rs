@@ -54,7 +54,10 @@ static ACTIVE: RwLock<Active> = RwLock::new(Active::Game);
 
 /// Whether `id` can name a farm.
 pub fn valid_id(id: &str) -> bool {
-    (1..=ID_MAX).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    (1..=ID_MAX).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// `base` with each of `top`'s kinds in place of the one with its code, and the new codes after.
@@ -76,9 +79,14 @@ pub fn use_farm_text(id: &str, farm: Option<&str>, ground: Option<&str>) -> Resu
     if farm.is_none() && ground.is_none() {
         return Ok(());
     }
-    let f = FarmFile { id: id.to_string(), farm: farm.map(str::to_string), ground: ground.map(str::to_string) };
+    let f = FarmFile {
+        id: id.to_string(),
+        farm: farm.map(str::to_string),
+        ground: ground.map(str::to_string),
+    };
     let (rules, kinds) = read(&f)?;
-    *EDITED.write().unwrap_or_else(|e| e.into_inner()) = Some((Box::leak(Box::new(rules)), kinds.leak()));
+    *EDITED.write().unwrap_or_else(|e| e.into_inner()) =
+        Some((Box::leak(Box::new(rules)), kinds.leak()));
     *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Active::Edited;
     Ok(())
 }
@@ -87,9 +95,13 @@ pub fn use_farm_text(id: &str, farm: Option<&str>, ground: Option<&str>) -> Resu
 fn read(f: &FarmFile) -> Result<(Farm, Vec<Ground>), String> {
     let mut kinds = ground::ground().to_vec();
     if let Some(text) = &f.ground {
-        let (top, missing) = ground::parse_noting(text).map_err(|e| format!("farms/{}.ground.txt:{e}", f.id))?;
+        let (top, missing) =
+            ground::parse_noting(text).map_err(|e| format!("farms/{}.ground.txt:{e}", f.id))?;
         for name in missing {
-            crate::data::note(format!("farms/{}.ground.txt: no prop called {name}, so its crop is left off", f.id));
+            crate::data::note(format!(
+                "farms/{}.ground.txt: no prop called {name}, so its crop is left off",
+                f.id
+            ));
         }
         kinds = lay_over(&kinds, top);
     }
@@ -107,18 +119,27 @@ pub fn install(files: &[FarmFile]) -> Vec<String> {
     let mut named: Vec<Named> = Vec::new();
     for f in files {
         if !valid_id(&f.id) {
-            notes.push(format!("farms/{}: a farm's id is 1 to {ID_MAX} of a-z, 0-9 and _", f.id));
+            notes.push(format!(
+                "farms/{}: a farm's id is 1 to {ID_MAX} of a-z, 0-9 and _",
+                f.id
+            ));
             continue;
         }
         match read(f) {
             Ok((rules, kinds)) => {
                 named.retain(|n| n.id != f.id);
-                named.push(Named { id: f.id.clone(), farm: Box::leak(Box::new(rules)), ground: kinds.leak() });
+                named.push(Named {
+                    id: f.id.clone(),
+                    farm: Box::leak(Box::new(rules)),
+                    ground: kinds.leak(),
+                });
             }
             Err(e) => notes.push(e),
         }
     }
-    let all = named.iter().fold(ground::ground().to_vec(), |all, n| lay_over(&all, n.ground.to_vec()));
+    let all = named.iter().fold(ground::ground().to_vec(), |all, n| {
+        lay_over(&all, n.ground.to_vec())
+    });
     ALL.set(all.leak()).ok();
     FARMS.set(named).ok();
     notes
@@ -126,7 +147,9 @@ pub fn install(files: &[FarmFile]) -> Vec<String> {
 
 /// The farms a player card can pick, by id.
 pub fn ids() -> Vec<String> {
-    FARMS.get().map_or(Vec::new(), |f| f.iter().map(|n| n.id.clone()).collect())
+    FARMS
+        .get()
+        .map_or(Vec::new(), |f| f.iter().map(|n| n.id.clone()).collect())
 }
 
 /// Lays out and paints with the farm `id` until told otherwise; the game's own for None, or an id no pack brings.
@@ -137,7 +160,10 @@ pub fn use_farm(id: Option<&str>) {
 
 /// Runs `f` with every farm's ground at once, as a hand-made map is checked, then goes back to the farm in use.
 pub(crate) fn with_every_ground<T>(f: impl FnOnce() -> T) -> T {
-    let was = std::mem::replace(&mut *ACTIVE.write().unwrap_or_else(|e| e.into_inner()), Active::All);
+    let was = std::mem::replace(
+        &mut *ACTIVE.write().unwrap_or_else(|e| e.into_inner()),
+        Active::All,
+    );
     let out = f();
     *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = was;
     out
@@ -151,7 +177,10 @@ fn active() -> Active {
 pub(super) fn active_farm() -> Option<&'static Farm> {
     match active() {
         Active::Named(i) => FARMS.get().map(|f| f[i].farm),
-        Active::Edited => EDITED.read().unwrap_or_else(|e| e.into_inner()).map(|e| e.0),
+        Active::Edited => EDITED
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|e| e.0),
         _ => None,
     }
 }
@@ -161,7 +190,10 @@ pub(super) fn active_ground() -> Option<&'static [Ground]> {
     match active() {
         Active::Named(i) => FARMS.get().map(|f| f[i].ground),
         Active::All => ALL.get().copied(),
-        Active::Edited => EDITED.read().unwrap_or_else(|e| e.into_inner()).map(|e| e.1),
+        Active::Edited => EDITED
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|e| e.1),
         Active::Game => None,
     }
 }

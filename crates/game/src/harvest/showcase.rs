@@ -92,8 +92,25 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure { lift: 0.0 }, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
-        Self { seed, harvest, strike: None, lying: None, crop: None, under: Vec::new(), swing: None }
+        harvest.shown = Some(Shown {
+            frames: Vec::new(),
+            stand: Stand::Figure { lift: 0.0 },
+            fps: 6.0,
+            pos,
+            top: None,
+            player: true,
+            crowd: Vec::new(),
+            worn: false,
+        });
+        Self {
+            seed,
+            harvest,
+            strike: None,
+            lying: None,
+            crop: None,
+            under: Vec::new(),
+            swing: None,
+        }
     }
 
     /// Hits the figure as a bullet would: a flash, then its hurt frame.
@@ -135,7 +152,11 @@ impl Showcase {
     /// Shows `frames`, animated at `fps`, standing as `stand`, with `top` capping a figure.
     pub fn show(&mut self, frames: Vec<Art>, stand: Stand, fps: f32, top: Option<Art>) {
         let lying = self.lying.is_some().then(Vec::new);
-        let struck = self.strike.as_ref().and_then(|(f, kill, t)| Self::struck(f, *kill, *t)).or(lying);
+        let struck = self
+            .strike
+            .as_ref()
+            .and_then(|(f, kill, t)| Self::struck(f, *kill, *t))
+            .or(lying);
         let frames = match &mut self.swing {
             Some((_, art, how, _)) => {
                 (*art, *how) = (frames, stand);
@@ -160,16 +181,31 @@ impl Showcase {
             h.map.set_crop(x, y, was);
         }
         self.crop = crop;
-        let (Some(CropShow { flat: (top, middle, bottom), standing: (t3, m3, b3), sway, tall }), Some(s)) = (&self.crop, &h.shown) else { return };
+        let (
+            Some(CropShow {
+                flat: (top, middle, bottom),
+                standing: (t3, m3, b3),
+                sway,
+                tall,
+            }),
+            Some(s),
+        ) = (&self.crop, &h.shown)
+        else {
+            return;
+        };
         let [tx, ty] = s.pos.map(|v| (v / TILE) as usize);
-        let (x0, y0) = (tx.saturating_sub(CROP_COLS / 2), ty.saturating_sub(CROP_ROWS / 2));
+        let (x0, y0) = (
+            tx.saturating_sub(CROP_COLS / 2),
+            ty.saturating_sub(CROP_ROWS / 2),
+        );
         let (x1, y1) = ((x0 + CROP_COLS).min(h.map.w), (y0 + CROP_ROWS).min(h.map.h));
         for y in y0..y1 {
             for x in x0..x1 {
                 let (up, down) = (y > y0, y + 1 < y1);
                 let flat = super::map::crop_piece(top, *middle, *bottom, x, y, up, down);
                 let stalk = Stalk::of((t3, *m3, *b3), x * 7 + y * 13, up, down, *tall, *sway);
-                self.under.push((x, y, h.map.set_crop(x, y, (Some(flat), Some(stalk)))));
+                self.under
+                    .push((x, y, h.map.set_crop(x, y, (Some(flat), Some(stalk)))));
             }
         }
     }
@@ -183,7 +219,11 @@ impl Showcase {
 
     /// How many faces the sprite on show is drawn with in 3D, before those turned from the camera are left out.
     pub fn quads(&self) -> Option<usize> {
-        let s = self.harvest.shown.as_ref().filter(|s| !s.frames.is_empty())?;
+        let s = self
+            .harvest
+            .shown
+            .as_ref()
+            .filter(|s| !s.frames.is_empty())?;
         Some(view3d::quads(s.frame(self.harvest.t), s.stand, s.top))
     }
 
@@ -195,7 +235,10 @@ impl Showcase {
             None => Harvest::calm(SEED),
         };
         harvest.birds.clear();
-        let shown = self.harvest.shown.take().map(|s| Shown { pos: harvest.map.spawn, ..s });
+        let shown = self.harvest.shown.take().map(|s| Shown {
+            pos: harvest.map.spawn,
+            ..s
+        });
         harvest.shown = shown;
         self.harvest = harvest;
         self.under.clear();
@@ -230,7 +273,10 @@ impl Showcase {
     pub fn walk(&mut self, delta: [f32; 2]) {
         let (w, h) = (self.harvest.map.width_px(), self.harvest.map.height_px());
         if let Some(s) = &mut self.harvest.shown {
-            s.pos = [(s.pos[0] + delta[0]).clamp(TILE, w - TILE), (s.pos[1] + delta[1]).clamp(TILE, h - TILE)];
+            s.pos = [
+                (s.pos[0] + delta[0]).clamp(TILE, w - TILE),
+                (s.pos[1] + delta[1]).clamp(TILE, h - TILE),
+            ];
         }
     }
 
@@ -251,7 +297,9 @@ impl Showcase {
             for side in [-1.0, 1.0] {
                 let [x, y] = [0, 1].map(|i| s.pos[i] - forward[i] * TILE + side * right[i] * TILE);
                 if x >= 0.0 && y >= 0.0 {
-                    harvest.map.barrier((x / TILE) as usize, (y / TILE) as usize);
+                    harvest
+                        .map
+                        .barrier((x / TILE) as usize, (y / TILE) as usize);
                 }
             }
         }
@@ -311,9 +359,22 @@ impl Showcase {
             *t += dt;
             let pos = self.harvest.shown.as_ref().map(|s| s.pos);
             if let Some(pos) = pos.filter(|_| *kill && before < FLASH_TIME && *t >= FLASH_TIME) {
-                let look = Look { walk: figure.stand.map(|a| vec![a]), flash: figure.flash, hurt: figure.hurt, dead: figure.dead };
+                let look = Look {
+                    walk: figure.stand.map(|a| vec![a]),
+                    flash: figure.flash,
+                    hurt: figure.hurt,
+                    dead: figure.dead,
+                };
                 let (gibs, blood) = (figure.gibs, figure.blood);
-                self.harvest.gore(pos, forward, 0.0, [-forward[0], -forward[1]], &look, gibs, blood);
+                self.harvest.gore(
+                    pos,
+                    forward,
+                    0.0,
+                    [-forward[0], -forward[1]],
+                    &look,
+                    gibs,
+                    blood,
+                );
             }
             if Self::struck(figure, *kill, *t).is_none() {
                 self.strike = None;
@@ -328,21 +389,39 @@ impl Showcase {
         h.juice.tick(dt);
         let Some(s) = &h.shown else { return };
         // The lying corpse is laid fresh each frame, so it never sinks; a killed one always moves at first.
-        h.juice.corpses.retain(|c| c.pos != s.pos || c.vel != [0.0; 2]);
+        h.juice
+            .corpses
+            .retain(|c| c.pos != s.pos || c.vel != [0.0; 2]);
         if let Some(f) = &self.lying {
             let dead = f.dead.map(|d| (d, [-forward[0], -forward[1]]));
-            h.juice.corpses.push(Corpse { art: f.hurt[0], dead, flip: false, pos: s.pos, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: forward, age: CORPSE_FALL, spin: 0.0 });
+            h.juice.corpses.push(Corpse {
+                art: f.hurt[0],
+                dead,
+                flip: false,
+                pos: s.pos,
+                z: 0.0,
+                vel: [0.0; 2],
+                vz: 0.0,
+                fall: forward,
+                age: CORPSE_FALL,
+                spin: 0.0,
+            });
         }
         // A step to the side keeps a shown player from standing between the camera and the sprite.
         let aside = if s.player { 14.0 } else { 0.0 };
-        h.me_mut().pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
+        h.me_mut().pos = [
+            s.pos[0] - forward[0] * distance - right[0] * aside,
+            s.pos[1] - forward[1] * distance - right[1] * aside,
+        ];
         h.me_mut().view_yaw = yaw;
         h.me_mut().aim = forward;
         for s in &mut h.me_mut().swings {
             s.age += dt;
         }
         h.me_mut().swings.retain(|s| s.age < s.life);
-        let Some((show, frames, stand, since)) = &mut self.swing else { return };
+        let Some((show, frames, stand, since)) = &mut self.swing else {
+            return;
+        };
         *since += dt;
         if frames.is_empty() || *since < show.life + SWING_REST {
             return;
@@ -354,24 +433,49 @@ impl Showcase {
             true => ([yaw, yaw + TAU], [show.reach; 2]),
             false => ([yaw; 2], [2.0, show.reach]),
         };
-        h.me_mut().swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
+        h.me_mut().swings.push(Swing {
+            art,
+            fade: show.fade,
+            age: 0.0,
+            life: show.life,
+            angle,
+            reach,
+            stand: Some(*stand),
+            smash: show.smash,
+        });
     }
 
     /// The 2.5D view, as on the top screen.
     pub fn top(&self) -> Canvas {
         let scene = view3d::scene(&self.harvest);
-        Canvas { clear: [scene.fog[0], scene.fog[1], scene.fog[2], 1.0], cards: Some(scene), ..Default::default() }
+        Canvas {
+            clear: [scene.fog[0], scene.fog[1], scene.fog[2], 1.0],
+            cards: Some(scene),
+            ..Default::default()
+        }
     }
 
     /// The map around the sprite, as on the bottom screen, magnified `zoom` times past the game's own scale.
     pub fn map(&self, zoom: f32) -> Canvas {
-        let mut c = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };
+        let mut c = Canvas {
+            clear: [0.0, 0.0, 0.0, 1.0],
+            ..Default::default()
+        };
         let h = &self.harvest;
         let Some(s) = &h.shown else { return c };
         let scale = map_scale() * zoom;
-        let cam = [s.pos[0] - view_w() / zoom / 2.0, s.pos[1] - 8.0 - view_h() / zoom / 2.0];
+        let cam = [
+            s.pos[0] - view_w() / zoom / 2.0,
+            s.pos[1] - 8.0 - view_h() / zoom / 2.0,
+        ];
         let wash = view3d::sky(h).wash;
-        let tint: Color = [0, 1, 2, 3].map(|i| if i == 3 { 1.0 } else { 1.0 - wash[3] + wash[3] * wash[i] });
+        let tint: Color = [0, 1, 2, 3].map(|i| {
+            if i == 3 {
+                1.0
+            } else {
+                1.0 - wash[3] + wash[3] * wash[i]
+            }
+        });
         h.world(&mut c, cam, scale, tint, false);
         c
     }
@@ -389,7 +493,14 @@ mod tests {
 
     fn figure(dead: bool) -> Figure {
         let a = [art::SKINNY_HURT[0]; 3];
-        Figure { stand: [art::SKINNY_FRONT[0]; 3], flash: a, hurt: a, dead: dead.then_some(a), gibs: 9, blood: None }
+        Figure {
+            stand: [art::SKINNY_FRONT[0]; 3],
+            flash: a,
+            hurt: a,
+            dead: dead.then_some(a),
+            gibs: 9,
+            blood: None,
+        }
     }
 
     #[test]
@@ -400,16 +511,30 @@ mod tests {
         s.kill(figure(true));
         s.update(0.01, Showcase::yaw(), 48.0);
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
-        assert_eq!(s.harvest.shown.as_ref().unwrap().frames, vec![art::SKINNY_HURT[0]], "it flashes first");
+        assert_eq!(
+            s.harvest.shown.as_ref().unwrap().frames,
+            vec![art::SKINNY_HURT[0]],
+            "it flashes first"
+        );
         s.update(FLASH_TIME, Showcase::yaw(), 48.0);
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
-        assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "then it's gone");
+        assert!(
+            s.harvest.shown.as_ref().unwrap().frames.is_empty(),
+            "then it's gone"
+        );
         assert_eq!(s.harvest.juice.corpses.len(), 1);
-        assert!(s.harvest.juice.corpses[0].dead.is_some(), "its own dead frames");
+        assert!(
+            s.harvest.juice.corpses[0].dead.is_some(),
+            "its own dead frames"
+        );
         assert!(!s.harvest.juice.particles.is_empty(), "with gibs");
         s.update(DEAD_TIME, Showcase::yaw(), 48.0);
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
-        assert_eq!(s.harvest.shown.as_ref().unwrap().frames, frames, "and stands again");
+        assert_eq!(
+            s.harvest.shown.as_ref().unwrap().frames,
+            frames,
+            "and stands again"
+        );
     }
 
     #[test]
@@ -421,9 +546,16 @@ mod tests {
             s.update(5.0, Showcase::yaw(), 48.0);
         }
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
-        assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "it isn't standing too");
+        assert!(
+            s.harvest.shown.as_ref().unwrap().frames.is_empty(),
+            "it isn't standing too"
+        );
         assert_eq!(s.harvest.juice.corpses.len(), 1);
-        assert_eq!(s.harvest.juice.corpses[0].tipped(), 1.0, "tipped flat, as the game leaves one");
+        assert_eq!(
+            s.harvest.juice.corpses[0].tipped(),
+            1.0,
+            "tipped flat, as the game leaves one"
+        );
         assert_eq!(s.harvest.juice.corpses[0].sunk(), 0.0, "and never sinks");
         s.lie(None);
         s.update(0.01, Showcase::yaw(), 48.0);
@@ -437,39 +569,108 @@ mod tests {
         let mut s = Showcase::new(7);
         s.show_player(false);
         // A sprite with no place of its own wears it where the game picks.
-        s.show(vec![art::SKINNY_FRONT[0]], Stand::Figure { lift: 0.0 }, 6.0, None);
+        s.show(
+            vec![art::SKINNY_FRONT[0]],
+            Stand::Figure { lift: 0.0 },
+            6.0,
+            None,
+        );
         s.update(0.01, Showcase::yaw(), 48.0);
         let drawn = |s: &Showcase| (s.top().cards.unwrap().cards.len(), s.map(1.0).shapes.len());
         let bare = drawn(&s);
         s.wear_grenade(true);
         let (cards, shapes) = drawn(&s);
-        assert!(cards > bare.0 && shapes == bare.1 + 1, "{bare:?} then {:?}", (cards, shapes));
+        assert!(
+            cards > bare.0 && shapes == bare.1 + 1,
+            "{bare:?} then {:?}",
+            (cards, shapes)
+        );
     }
 
     #[test]
     fn a_crop_stands_in_a_field_in_the_sprites_place_top_middles_bottom_and_goes_again() {
         let mut s = Showcase::new(7);
         let [tx, ty] = s.shown_at().unwrap().map(|v| (v / TILE) as usize);
-        let before: Vec<_> = (ty - 2..ty + 2).map(|y| s.harvest.map.tile(tx, y).1).collect();
+        let before: Vec<_> = (ty - 2..ty + 2)
+            .map(|y| s.harvest.map.tile(tx, y).1)
+            .collect();
         let top = vec![art::CORN_TOP[0], art::CORN_TOP[1]];
-        let sway = Sway { degrees: 4.0, seconds: 3.5 };
-        let corn = CropShow { flat: (top.clone(), art::CORN, art::CORN_BOTTOM), standing: (top.clone(), art::CORN_BOTTOM, art::CORN_BOTTOM), sway, tall: 3 };
+        let sway = Sway {
+            degrees: 4.0,
+            seconds: 3.5,
+        };
+        let corn = CropShow {
+            flat: (top.clone(), art::CORN, art::CORN_BOTTOM),
+            standing: (top.clone(), art::CORN_BOTTOM, art::CORN_BOTTOM),
+            sway,
+            tall: 3,
+        };
         s.show_crop(Some(corn.clone()));
-        s.show(vec![art::CORN_TOP[0]], Stand::Prop { depth: 2.0 }, 6.0, None);
-        assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "the field stands in its place");
-        let column = |s: &Showcase, x: usize| (ty - 2..ty + 2).map(|y| s.harvest.map.tile(x, y).1.unwrap()).collect::<Vec<_>>();
-        assert_eq!(column(&s, tx)[1..], [art::CORN, art::CORN, art::CORN_BOTTOM]);
+        s.show(
+            vec![art::CORN_TOP[0]],
+            Stand::Prop { depth: 2.0 },
+            6.0,
+            None,
+        );
+        assert!(
+            s.harvest.shown.as_ref().unwrap().frames.is_empty(),
+            "the field stands in its place"
+        );
+        let column = |s: &Showcase, x: usize| {
+            (ty - 2..ty + 2)
+                .map(|y| s.harvest.map.tile(x, y).1.unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            column(&s, tx)[1..],
+            [art::CORN, art::CORN, art::CORN_BOTTOM]
+        );
         let tops: Vec<Art> = (tx - 1..=tx + 1).map(|x| column(&s, x)[0]).collect();
-        assert!(top.iter().all(|t| tops.contains(t)), "neighbouring tops show both frames: {tops:?}");
-        assert_eq!(tops[1], super::super::map::crop_piece(&top, art::CORN, art::CORN_BOTTOM, tx, ty - 2, false, true), "as a map picks them");
-        let standing: Vec<Stalk> = (ty - 2..ty + 2).map(|y| s.harvest.map.standing(tx, y).unwrap()).collect();
-        let caps: Vec<Art> = (ty - 2..ty + 2).map(|y| top[(tx * 7 + y * 13) % 2]).collect();
+        assert!(
+            top.iter().all(|t| tops.contains(t)),
+            "neighbouring tops show both frames: {tops:?}"
+        );
+        assert_eq!(
+            tops[1],
+            super::super::map::crop_piece(
+                &top,
+                art::CORN,
+                art::CORN_BOTTOM,
+                tx,
+                ty - 2,
+                false,
+                true
+            ),
+            "as a map picks them"
+        );
+        let standing: Vec<Stalk> = (ty - 2..ty + 2)
+            .map(|y| s.harvest.map.standing(tx, y).unwrap())
+            .collect();
+        let caps: Vec<Art> = (ty - 2..ty + 2)
+            .map(|y| top[(tx * 7 + y * 13) % 2])
+            .collect();
         assert_eq!(caps[0], tops[1], "the north end's cap is its map top");
-        assert!(standing.iter().zip(&caps).all(|(k, cap)| (k.lower, k.top, k.tall, k.sway) == (art::CORN_BOTTOM, *cap, 3, sway)), "3D stands tall crop_3d columns, swaying: {standing:?}");
+        assert!(
+            standing
+                .iter()
+                .zip(&caps)
+                .all(|(k, cap)| (k.lower, k.top, k.tall, k.sway)
+                    == (art::CORN_BOTTOM, *cap, 3, sway)),
+            "3D stands tall crop_3d columns, swaying: {standing:?}"
+        );
         s.show_crop(Some(corn));
-        assert_eq!(s.under.len(), CROP_ROWS * CROP_COLS, "showing it again lays it once");
+        assert_eq!(
+            s.under.len(),
+            CROP_ROWS * CROP_COLS,
+            "showing it again lays it once"
+        );
         s.show_crop(None);
-        assert_eq!((ty - 2..ty + 2).map(|y| s.harvest.map.tile(tx, y).1).collect::<Vec<_>>(), before);
+        assert_eq!(
+            (ty - 2..ty + 2)
+                .map(|y| s.harvest.map.tile(tx, y).1)
+                .collect::<Vec<_>>(),
+            before
+        );
     }
 
     /// The cost of a corn field's 3D cards, tall and short, swaying and still:
@@ -477,17 +678,38 @@ mod tests {
     #[test]
     #[ignore]
     fn sway_cost() {
-        let rows: String = (0..54).map(|y| format!("{}\n", if (2..52).contains(&y) { "c".repeat(72) } else { ".".repeat(72) })).collect();
-        let src = super::super::map::MapSource::parse(&format!("name Corn\nsize 72 54\nspawn 36 1\nhome 37 1\nground\n{rows}props\n")).unwrap();
+        let rows: String = (0..54)
+            .map(|y| {
+                format!(
+                    "{}\n",
+                    if (2..52).contains(&y) {
+                        "c".repeat(72)
+                    } else {
+                        ".".repeat(72)
+                    }
+                )
+            })
+            .collect();
+        let src = super::super::map::MapSource::parse(&format!(
+            "name Corn\nsize 72 54\nspawn 36 1\nhome 37 1\nground\n{rows}props\n"
+        ))
+        .unwrap();
         let mut h = Harvest::calm_on(7, &src).unwrap();
         h.me_mut().pos = [36.0 * TILE, 30.0 * TILE];
-        let laid: Vec<Option<Stalk>> = (0..h.map.h).flat_map(|y| (0..h.map.w).map(move |x| (x, y))).map(|(x, y)| h.map.standing(x, y)).collect();
+        let laid: Vec<Option<Stalk>> = (0..h.map.h)
+            .flat_map(|y| (0..h.map.w).map(move |x| (x, y)))
+            .map(|(x, y)| h.map.standing(x, y))
+            .collect();
         for (tall, sway) in [(3, true), (3, false), (1, true), (1, false)] {
             for (i, k) in laid.iter().enumerate() {
                 let (x, y) = (i % h.map.w, i / h.map.w);
                 let k = k.map(|k| {
                     let short = Stalk { lower: k.top, ..k };
-                    Stalk { tall, sway: if sway { k.sway } else { Sway::default() }, ..if tall == 1 { short } else { k } }
+                    Stalk {
+                        tall,
+                        sway: if sway { k.sway } else { Sway::default() },
+                        ..if tall == 1 { short } else { k }
+                    }
                 });
                 h.map.set_crop(x, y, (h.map.tile(x, y).1, k));
             }
@@ -502,7 +724,10 @@ mod tests {
                 std::hint::black_box(view3d::scene(&h));
             }
             let ms = start.elapsed().as_secs_f64() * 1000.0 / n as f64;
-            println!("tall {tall} sway {sway}: {} cards, {ms:.4} ms a scene", view3d::scene(&h).cards.len());
+            println!(
+                "tall {tall} sway {sway}: {} cards, {ms:.4} ms a scene",
+                view3d::scene(&h).cards.len()
+            );
         }
     }
 
@@ -513,7 +738,10 @@ mod tests {
         s.hurt(figure(false));
         s.update(FLASH_TIME + 0.01, Showcase::yaw(), 48.0);
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
-        assert_eq!(s.harvest.shown.as_ref().unwrap().frames, vec![art::SKINNY_HURT[0]]);
+        assert_eq!(
+            s.harvest.shown.as_ref().unwrap().frames,
+            vec![art::SKINNY_HURT[0]]
+        );
         assert!(s.harvest.juice.corpses.is_empty());
         s.update(HURT_FRAMES, Showcase::yaw(), 48.0);
         s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);

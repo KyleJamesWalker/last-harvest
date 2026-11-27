@@ -43,9 +43,17 @@ impl Page {
     pub fn fit([w, h]: [f32; 2]) -> Self {
         if w.min(h) < PHONE {
             let beside = w > h;
-            let room = if beside { [w - BESIDE, h] } else { [w, h - TOOLBAR] };
+            let room = if beside {
+                [w - BESIDE, h]
+            } else {
+                [w, h - TOOLBAR]
+            };
             let view = [0, 1].map(|i| room[i].floor().clamp(100.0, PHONE_PANES[i]));
-            return Self { panes: PHONE_PANES, view, beside };
+            return Self {
+                panes: PHONE_PANES,
+                view,
+                beside,
+            };
         }
         let room = (h - TOOLBAR).max(200.0);
         let panes = if h > w {
@@ -55,7 +63,11 @@ impl Page {
             let w = w.min(room * 2.0).floor();
             [w, (w / 2.0).floor()]
         };
-        Self { panes, view: panes, beside: false }
+        Self {
+            panes,
+            view: panes,
+            beside: false,
+        }
     }
 
     /// Whether the canvas shows only part of the panes, which two fingers then scroll.
@@ -120,7 +132,9 @@ impl Studio {
     pub fn locate(size: [f32; 2], [x, y]: [f32; 2]) -> (Pane, [f32; 2]) {
         let panes = Self::panes(size);
         let (cx, cy) = (x.clamp(0.0, size[0] - 1.0), y.clamp(0.0, size[1] - 1.0));
-        let at = panes.iter().position(|&[px, py, pw, ph]| cx >= px && cy >= py && cx < px + pw && cy < py + ph);
+        let at = panes
+            .iter()
+            .position(|&[px, py, pw, ph]| cx >= px && cy >= py && cx < px + pw && cy < py + ph);
         let pane = [Pane::Edit, Pane::View, Pane::Map][at.unwrap_or(0)];
         let [px, py, pw, ph] = panes[pane as usize];
         (pane, [(x - px) / pw * SCREEN_W, (y - py) / ph * SCREEN_H])
@@ -146,10 +160,18 @@ impl Studio {
     pub fn panes([w, h]: [f32; 2]) -> [[f32; 4]; 3] {
         if h > w {
             let (top, half) = (w * 0.75, w / 2.0);
-            return [[0.0, 0.0, w, top], [0.0, top, half, h - top], [half, top, w - half, h - top]];
+            return [
+                [0.0, 0.0, w, top],
+                [0.0, top, half, h - top],
+                [half, top, w - half, h - top],
+            ];
         }
         let edit = w * 2.0 / 3.0;
-        [[0.0, 0.0, edit, h], [edit, 0.0, w - edit, h / 2.0], [edit, h / 2.0, w - edit, h / 2.0]]
+        [
+            [0.0, 0.0, edit, h],
+            [edit, 0.0, w - edit, h / 2.0],
+            [edit, h / 2.0, w - edit, h / 2.0],
+        ]
     }
 
     /// Moves time on; returns the art texture when the sprite changed, for the renderer to upload.
@@ -162,7 +184,11 @@ impl Studio {
         if let Some(kill) = self.editor.strike.take()
             && let Some(figure) = self.editor.figure()
         {
-            if kill { self.showcase.kill(figure) } else { self.showcase.hurt(figure) }
+            if kill {
+                self.showcase.kill(figure)
+            } else {
+                self.showcase.hurt(figure)
+            }
         }
         if let Some(focus) = self.editor.take_map_change() {
             if let Err(e) = self.showcase.show_map(self.editor.map_source()) {
@@ -176,8 +202,14 @@ impl Studio {
         }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show_crop(self.editor.crop_preview());
-        self.showcase.swing(last_harvest_game::swing_shown(&self.editor.sprite.name));
-        self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
+        self.showcase
+            .swing(last_harvest_game::swing_shown(&self.editor.sprite.name));
+        self.showcase.show(
+            self.editor.shown(),
+            self.editor.stand(),
+            self.editor.fps,
+            self.editor.top_art(),
+        );
         art::set_live_detail(self.editor.live_detail());
         art::set_live_alpha(self.editor.live_alpha());
         let (worn, wears) = self.editor.live_worn();
@@ -216,7 +248,9 @@ impl Studio {
             shelf = shelf.max(f.h);
         }
         if rects.len() < surfaces.len() {
-            self.editor.say(format!("Too big to preview whole: the frames and views must fit in {sw}x{sh} pixels"));
+            self.editor.say(format!(
+                "Too big to preview whole: the frames and views must fit in {sw}x{sh} pixels"
+            ));
         }
         let live = art::set_live(rects, self.atlas.clone());
         self.editor.set_live(live);
@@ -230,23 +264,69 @@ impl Studio {
         }
         self.editor.draw(&mut edit);
         let mut view = self.showcase.top();
-        view.label(format!("2.5D view: {}", self.hints[0]), 16.0, 12.0, 30.0, [1.0, 1.0, 1.0, 0.85], Align::Left);
+        view.label(
+            format!("2.5D view: {}", self.hints[0]),
+            16.0,
+            12.0,
+            30.0,
+            [1.0, 1.0, 1.0, 0.85],
+            Align::Left,
+        );
         if let Some(n) = self.showcase.quads().filter(|_| !self.on_map) {
             view.rect(8.0, SCREEN_H - 56.0, 760.0, 48.0, [0.0, 0.0, 0.0, 0.5]);
-            view.label(format!("3D: {n} quads, {} vertices; about half face the camera", 4 * n), 16.0, SCREEN_H - 48.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Left);
+            view.label(
+                format!(
+                    "3D: {n} quads, {} vertices; about half face the camera",
+                    4 * n
+                ),
+                16.0,
+                SCREEN_H - 48.0,
+                28.0,
+                [1.0, 1.0, 1.0, 0.9],
+                Align::Left,
+            );
         }
         let [x, y, w, h] = PLAYER_SWITCH;
         view.rect(x, y, w, h, [0.0, 0.0, 0.0, 0.5]);
-        let label = if self.player { "Player: shown" } else { "Player: hidden" };
-        view.label(label, x + w / 2.0, y + 8.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Center);
+        let label = if self.player {
+            "Player: shown"
+        } else {
+            "Player: hidden"
+        };
+        view.label(
+            label,
+            x + w / 2.0,
+            y + 8.0,
+            28.0,
+            [1.0, 1.0, 1.0, 0.9],
+            Align::Center,
+        );
         if self.editor.live_worn().1 {
             let [x, y, w, h] = GRENADE_SWITCH;
             view.rect(x, y, w, h, [0.0, 0.0, 0.0, 0.5]);
-            let label = if self.grenade { "Grenade: shown" } else { "Grenade: hidden" };
-            view.label(label, x + w / 2.0, y + 8.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Center);
+            let label = if self.grenade {
+                "Grenade: shown"
+            } else {
+                "Grenade: hidden"
+            };
+            view.label(
+                label,
+                x + w / 2.0,
+                y + 8.0,
+                28.0,
+                [1.0, 1.0, 1.0, 0.9],
+                Align::Center,
+            );
         }
         let mut map = self.showcase.map(self.zoom);
-        map.label(format!("Map at {}x the game's scale: {}", self.zoom, self.hints[1]), 16.0, 12.0, 30.0, [1.0, 1.0, 1.0, 0.85], Align::Left);
+        map.label(
+            format!("Map at {}x the game's scale: {}", self.zoom, self.hints[1]),
+            16.0,
+            12.0,
+            30.0,
+            [1.0, 1.0, 1.0, 0.85],
+            Align::Left,
+        );
         [edit, view, map]
     }
 
@@ -260,7 +340,11 @@ impl Studio {
             return;
         }
         let [x, y, w, h] = GRENADE_SWITCH;
-        if pane == Pane::View && self.editor.live_worn().1 && (x..x + w).contains(&p[0]) && (y..y + h).contains(&p[1]) {
+        if pane == Pane::View
+            && self.editor.live_worn().1
+            && (x..x + w).contains(&p[0])
+            && (y..y + h).contains(&p[1])
+        {
             self.grenade = !self.grenade;
             return;
         }
@@ -295,7 +379,9 @@ impl Studio {
     pub fn pinch(&mut self, pane: Pane, center: [f32; 2], factor: f32, pan: [f32; 2]) {
         match pane {
             Pane::Edit => self.editor.zoom_canvas(center, factor, pan),
-            Pane::View => self.distance = (self.distance - 40.0 * (factor - 1.0)).clamp(NEAREST, FARTHEST),
+            Pane::View => {
+                self.distance = (self.distance - 40.0 * (factor - 1.0)).clamp(NEAREST, FARTHEST)
+            }
             Pane::Map => {
                 self.map_lens = (self.map_lens * factor).clamp(1.0, 6.0);
                 self.zoom = self.map_lens.round();
@@ -331,21 +417,41 @@ mod tests {
     #[test]
     fn a_tap_on_another_pane_closes_the_naming_box_and_does_nothing_else() {
         let dir = std::env::temp_dir().join(format!("studio-ask-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         s.editor.key(Key::Char('n'));
         assert!(s.editor.wants_text());
         let [x, y, w, h] = PLAYER_SWITCH;
         s.press(Pane::View, [x + w / 2.0, y + h / 2.0], false, false);
-        assert!(!s.editor.wants_text() && s.player, "the box closes and the switch stays as it was");
+        assert!(
+            !s.editor.wants_text() && s.player,
+            "the box closes and the switch stays as it was"
+        );
     }
 
     #[test]
     fn the_view_hides_the_player_on_a_tap_and_comes_closer_without_them() {
         let dir = std::env::temp_dir().join(format!("studio-test-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         let [x, y, w, h] = PLAYER_SWITCH;
         s.press(Pane::View, [x + w / 2.0, y + h / 2.0], false, false);
-        assert!(!s.player && s.held.is_none(), "a tap on the switch, not a drag");
+        assert!(
+            !s.player && s.held.is_none(),
+            "a tap on the switch, not a drag"
+        );
         for _ in 0..40 {
             s.wheel(Pane::View, [500.0, 400.0], 1.0);
         }
@@ -356,12 +462,21 @@ mod tests {
     #[test]
     fn a_player_facing_switches_its_grenade_in_the_previews_and_a_barrel_has_no_switch() {
         let dir = std::env::temp_dir().join(format!("studio-grenade-{}", std::process::id()));
-        let store = || Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") });
+        let store = || {
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            })
+        };
         let [x, y, w, h] = GRENADE_SWITCH;
         let tap = [x + w / 2.0, y + h / 2.0];
         let mut s = Studio::new(store(), "BARREL");
         s.press(Pane::View, tap, false, false);
-        assert!(s.grenade && s.held == Some(Pane::View), "no switch there, so a drag starts");
+        assert!(
+            s.grenade && s.held == Some(Pane::View),
+            "no switch there, so a drag starts"
+        );
         let mut s = Studio::new(store(), "PLAYER_SIDE");
         s.press(Pane::View, tap, false, false);
         assert!(!s.grenade && s.held.is_none());
@@ -372,77 +487,198 @@ mod tests {
         let _live = packing();
         let dir = std::env::temp_dir().join(format!("studio-dead-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("enemies")).unwrap();
-        let sheet: Vec<u8> = (0..16 * 3 * 16 * 5).flat_map(|i| if i % 7 == 0 { [0; 4] } else { [200, 100, 50, 255] }).collect();
+        let sheet: Vec<u8> = (0..16 * 3 * 16 * 5)
+            .flat_map(|i| {
+                if i % 7 == 0 {
+                    [0; 4]
+                } else {
+                    [200, 100, 50, 255]
+                }
+            })
+            .collect();
         let card = last_harvest_pack::card::write("[ghoul]\nname Ghoul", 48, 80, &sheet).unwrap();
         std::fs::write(dir.join("enemies/ghoul.enemy.png"), card).unwrap();
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "CARD_GHOUL_DEAD");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "CARD_GHOUL_DEAD",
+        );
         s.tick(0.1);
         s.tick(0.1);
         assert_eq!(s.editor.sprite.name, "CARD_GHOUL_DEAD");
         assert!(s.editor.dead_part());
         assert!(s.editor.figure().is_some(), "the figure was packed");
-        assert!(s.editor.lying_figure().is_some_and(|f| f.dead.is_none()), "a blank dead part lies as the tipped hurt frame");
+        assert!(
+            s.editor.lying_figure().is_some_and(|f| f.dead.is_none()),
+            "a blank dead part lies as the tipped hurt frame"
+        );
     }
 
     #[test]
     fn an_open_crop_piece_stands_live_with_the_others_saved_in_both_previews() {
         let _live = packing();
         let dir = std::env::temp_dir().join(format!("studio-crop-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "CORN_TOP");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "CORN_TOP",
+        );
         s.tick(0.1);
         let crop = s.editor.crop_preview().expect("packed");
         let (top, middle, bottom) = crop.flat.clone();
-        assert_eq!(top.len(), 2, "every frame of the top, which picks between them");
-        assert_eq!(crop.standing, (top.clone(), bottom, bottom), "corn stands whole stalks in 3D");
-        assert!(crop.sway.degrees > 0.0 && crop.tall == 3, "tall, and swaying");
+        assert_eq!(
+            top.len(),
+            2,
+            "every frame of the top, which picks between them"
+        );
+        assert_eq!(
+            crop.standing,
+            (top.clone(), bottom, bottom),
+            "corn stands whole stalks in 3D"
+        );
+        assert!(
+            crop.sway.degrees > 0.0 && crop.tall == 3,
+            "tall, and swaying"
+        );
         assert_eq!(top[0], s.editor.shown()[0], "the open sprite stands live");
-        assert!([middle, bottom].iter().all(|a| a.0 as usize >= art::count() && !top.contains(a)), "the others packed from their saved frames");
+        assert!(
+            [middle, bottom]
+                .iter()
+                .all(|a| a.0 as usize >= art::count() && !top.contains(a)),
+            "the others packed from their saved frames"
+        );
         let [_, view, map] = s.canvases();
-        let drawn: Vec<art::Art> = map.shapes.iter().filter_map(|sh| if let last_harvest_game::Shape::Art { art, .. } = sh { Some(*art) } else { None }).collect();
-        assert!(top.iter().chain([&middle, &bottom]).all(|a| drawn.contains(a)), "the map stacks every piece");
+        let drawn: Vec<art::Art> = map
+            .shapes
+            .iter()
+            .filter_map(|sh| {
+                if let last_harvest_game::Shape::Art { art, .. } = sh {
+                    Some(*art)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            top.iter()
+                .chain([&middle, &bottom])
+                .all(|a| drawn.contains(a)),
+            "the map stacks every piece"
+        );
         assert!(view.cards.is_some_and(|c| !c.cards.is_empty()));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn points_land_in_the_pane_under_them_wide_or_tall() {
-        assert_eq!(Studio::locate([1536.0, 768.0], [512.0, 384.0]), (Pane::Edit, [512.0, 384.0]));
-        assert_eq!(Studio::locate([1536.0, 768.0], [1280.0, 576.0]), (Pane::Map, [512.0, 384.0]));
-        assert_eq!(Studio::locate([800.0, 900.0], [400.0, 300.0]), (Pane::Edit, [512.0, 384.0]));
-        assert_eq!(Studio::locate([800.0, 900.0], [200.0, 750.0]), (Pane::View, [512.0, 384.0]));
-        assert_eq!(Studio::locate([800.0, 900.0], [600.0, 750.0]), (Pane::Map, [512.0, 384.0]));
-        assert_eq!(Studio::locate([1536.0, 768.0], [1600.0, 100.0]).0, Pane::View, "past the window's edge, the pane nearest");
+        assert_eq!(
+            Studio::locate([1536.0, 768.0], [512.0, 384.0]),
+            (Pane::Edit, [512.0, 384.0])
+        );
+        assert_eq!(
+            Studio::locate([1536.0, 768.0], [1280.0, 576.0]),
+            (Pane::Map, [512.0, 384.0])
+        );
+        assert_eq!(
+            Studio::locate([800.0, 900.0], [400.0, 300.0]),
+            (Pane::Edit, [512.0, 384.0])
+        );
+        assert_eq!(
+            Studio::locate([800.0, 900.0], [200.0, 750.0]),
+            (Pane::View, [512.0, 384.0])
+        );
+        assert_eq!(
+            Studio::locate([800.0, 900.0], [600.0, 750.0]),
+            (Pane::Map, [512.0, 384.0])
+        );
+        assert_eq!(
+            Studio::locate([1536.0, 768.0], [1600.0, 100.0]).0,
+            Pane::View,
+            "past the window's edge, the pane nearest"
+        );
     }
 
     #[test]
     fn a_phone_shows_part_of_the_panes_near_a_tablets_size_and_scrolls_them() {
         let tablet = Page::fit([1180.0, 820.0]);
-        assert_eq!(tablet, Page { panes: [1180.0, 590.0], view: [1180.0, 590.0], beside: false });
+        assert_eq!(
+            tablet,
+            Page {
+                panes: [1180.0, 590.0],
+                view: [1180.0, 590.0],
+                beside: false
+            }
+        );
         assert!(!tablet.scrolls());
         assert_eq!(Page::fit([820.0, 1180.0]).panes, [820.0, 922.0]);
-        assert!(!Page::fit([1280.0, 600.0]).scrolls(), "a short computer window still shows the panes whole");
+        assert!(
+            !Page::fit([1280.0, 600.0]).scrolls(),
+            "a short computer window still shows the panes whole"
+        );
         let upright = Page::fit([390.0, 844.0]);
-        assert_eq!(upright, Page { panes: PHONE_PANES, view: [390.0, 664.0], beside: false });
+        assert_eq!(
+            upright,
+            Page {
+                panes: PHONE_PANES,
+                view: [390.0, 664.0],
+                beside: false
+            }
+        );
         let sideways = Page::fit([844.0, 390.0]);
-        assert_eq!(sideways, Page { panes: PHONE_PANES, view: [624.0, 390.0], beside: true });
+        assert_eq!(
+            sideways,
+            Page {
+                panes: PHONE_PANES,
+                view: [624.0, 390.0],
+                beside: true
+            }
+        );
         for page in [upright, sideways] {
             assert!(page.scrolls());
             let edit = Studio::panes(page.panes)[Pane::Edit as usize];
-            assert!(edit[2] / SCREEN_W >= 0.75, "the editing pane draws at three quarters size");
+            assert!(
+                edit[2] / SCREEN_W >= 0.75,
+                "the editing pane draws at three quarters size"
+            );
             assert_eq!(page.clamp([-5.0, -5.0]), [0.0, 0.0]);
             let end = page.clamp([1e4, 1e4]);
-            assert_eq!([0, 1].map(|i| end[i] + page.view[i]), page.panes, "scrolled to the end, the canvas ends with the panes");
+            assert_eq!(
+                [0, 1].map(|i| end[i] + page.view[i]),
+                page.panes,
+                "scrolled to the end, the canvas ends with the panes"
+            );
         }
-        assert_eq!(Studio::locate(sideways.panes, [700.0, 700.0]).0, Pane::Map, "the previews stay under the editing pane");
+        assert_eq!(
+            Studio::locate(sideways.panes, [700.0, 700.0]).0,
+            Pane::Map,
+            "the previews stay under the editing pane"
+        );
     }
 
     #[test]
     fn a_held_press_keeps_its_pane_past_the_edge() {
         let dir = std::env::temp_dir().join(format!("studio-held-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         s.press(Pane::Edit, [500.0, 700.0], false, false);
         let (pane, p) = s.locate_move([800.0, 900.0], [400.0, 650.0]);
-        assert_eq!(pane, Pane::Edit, "a stroke dragged down onto the previews stays a stroke");
+        assert_eq!(
+            pane,
+            Pane::Edit,
+            "a stroke dragged down onto the previews stays a stroke"
+        );
         assert!(p[1] > SCREEN_H);
         s.release();
         assert_eq!(s.locate_move([800.0, 900.0], [400.0, 650.0]).0, Pane::Map);
@@ -452,16 +688,31 @@ mod tests {
     fn the_view_counts_the_quads_the_sprite_draws() {
         let _live = packing();
         let dir = std::env::temp_dir().join(format!("studio-quads-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut s = Studio::new(
+            Box::new(FsStore {
+                dir: dir.clone(),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         let count = |s: &mut Studio| {
             s.tick(0.0);
             let [_, view, _] = s.canvases();
             view.shapes.iter().find_map(|sh| match sh {
-                last_harvest_game::Shape::Text { text, .. } => text.strip_prefix("3D: ")?.split(' ').next()?.parse::<usize>().ok(),
+                last_harvest_game::Shape::Text { text, .. } => text
+                    .strip_prefix("3D: ")?
+                    .split(' ')
+                    .next()?
+                    .parse::<usize>()
+                    .ok(),
                 _ => None,
             })
         };
-        assert!(count(&mut s).is_some_and(|n| n > 1), "a barrel stands as a solid of many quads");
+        assert!(
+            count(&mut s).is_some_and(|n| n > 1),
+            "a barrel stands as a solid of many quads"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

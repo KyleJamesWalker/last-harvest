@@ -139,9 +139,16 @@ pub fn sound_groups<S: AsRef<str>>(files: impl IntoIterator<Item = S>) -> Vec<St
     let mut groups: Vec<String> = files
         .into_iter()
         .filter_map(|f| {
-            let stem = f.as_ref().strip_suffix(".ogg").or_else(|| f.as_ref().strip_suffix(".wav"))?;
-            let group = stem.rsplit_once('-').filter(|(_, n)| n.parse::<u32>().is_ok()).map_or(stem, |(g, _)| g);
-            (last_harvest_game::valid_sound_group(group) && !LOOPS.contains(&group)).then(|| group.to_string())
+            let stem = f
+                .as_ref()
+                .strip_suffix(".ogg")
+                .or_else(|| f.as_ref().strip_suffix(".wav"))?;
+            let group = stem
+                .rsplit_once('-')
+                .filter(|(_, n)| n.parse::<u32>().is_ok())
+                .map_or(stem, |(g, _)| g);
+            (last_harvest_game::valid_sound_group(group) && !LOOPS.contains(&group))
+                .then(|| group.to_string())
         })
         .collect();
     groups.sort();
@@ -150,7 +157,10 @@ pub fn sound_groups<S: AsRef<str>>(files: impl IntoIterator<Item = S>) -> Vec<St
 }
 
 pub fn farm_ids(files: impl IntoIterator<Item = String>) -> Vec<String> {
-    let mut ids: Vec<String> = files.into_iter().filter_map(|f| last_harvest_game::farm_of_file(&f).map(|(id, _)| id.to_string())).collect();
+    let mut ids: Vec<String> = files
+        .into_iter()
+        .filter_map(|f| last_harvest_game::farm_of_file(&f).map(|(id, _)| id.to_string()))
+        .collect();
     ids.sort();
     ids.dedup();
     ids
@@ -165,17 +175,29 @@ pub mod props {
 
     /// The id a prop's sprite name carries, such as `rusty_tank` for `PROP_RUSTY_TANK`.
     pub fn id(name: &str) -> Option<String> {
-        let id = name.strip_prefix(last_harvest_game::PROP_PREFIX)?.to_ascii_lowercase();
+        let id = name
+            .strip_prefix(last_harvest_game::PROP_PREFIX)?
+            .to_ascii_lowercase();
         last_harvest_game::valid_map_id(&id).then_some(id)
     }
 
     pub fn name(id: &str) -> String {
-        format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
+        format!(
+            "{}{}",
+            last_harvest_game::PROP_PREFIX,
+            id.to_ascii_uppercase()
+        )
     }
 
     /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, the optional
     /// pictures it has, by the file each saves as, and its detail.
-    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>, u8);
+    type Pictures = (
+        String,
+        Vec<Frame>,
+        Option<[Frame; 2]>,
+        Vec<(&'static str, Frame)>,
+        u8,
+    );
 
     fn pictures(bytes: &[u8]) -> Option<Pictures> {
         let p = prop::read("prop", bytes).ok()?;
@@ -184,19 +206,34 @@ pub mod props {
         let sw = f.sheet_w(fw, fh) as usize;
         let cut = |[x0, y0, w, h]: [u32; 4]| {
             let (x0, y0, w, h) = (x0 as usize, y0 as usize, w as usize, h as usize);
-            let px = (0..h).flat_map(|y| (0..w).map(move |x| ((y0 + y) * sw + x0 + x) * 4)).map(|i| [p.sheet[i], p.sheet[i + 1], p.sheet[i + 2], p.sheet[i + 3]]).collect();
+            let px = (0..h)
+                .flat_map(|y| (0..w).map(move |x| ((y0 + y) * sw + x0 + x) * 4))
+                .map(|i| [p.sheet[i], p.sheet[i + 1], p.sheet[i + 2], p.sheet[i + 3]])
+                .collect();
             Frame { w, h, px }
         };
         let frames = (0..f.frames).map(|k| cut([k * fw, 0, fw, fh])).collect();
         let (carving, vh) = (f.views > 0, f.views);
         let (roof_x, north_x) = ((f.frames + f.footprint as u32) * fw, fw + fh);
         let optional = [
-            (f.footprint, sprite::FOOTPRINT_FILE, [f.frames * fw, 0, fw, fh]),
+            (
+                f.footprint,
+                sprite::FOOTPRINT_FILE,
+                [f.frames * fw, 0, fw, fh],
+            ),
             (f.roof, sprite::ROOF_FILE, [roof_x, 0, fw, fh]),
             (f.north, sprite::NORTH_FILE, [north_x, fh, fw, vh]),
-            (f.west, sprite::WEST_FILE, [north_x + f.north as u32 * fw, fh, fh, vh]),
+            (
+                f.west,
+                sprite::WEST_FILE,
+                [north_x + f.north as u32 * fw, fh, fh, vh],
+            ),
         ];
-        let optional = optional.into_iter().filter(|(on, ..)| carving && *on).map(|(_, file, r)| (file, cut(r))).collect();
+        let optional = optional
+            .into_iter()
+            .filter(|(on, ..)| carving && *on)
+            .map(|(_, file, r)| (file, cut(r)))
+            .collect();
         let views = carving.then(|| [cut([0, fh, fw, vh]), cut([fw, fh, fh, vh])]);
         Some((p.text, frames, views, optional, p.detail))
     }
@@ -215,7 +252,13 @@ pub mod props {
         }
         if file == sprite::CLEAR_FILE {
             let f = last_harvest_game::prop_fields(&text).ok()?;
-            return (!f.clear.is_empty()).then(|| f.clear.iter().map(|&[r, g, b]| format!("{}\n", sprite::hex([r, g, b, 255]))).collect::<String>().into_bytes());
+            return (!f.clear.is_empty()).then(|| {
+                f.clear
+                    .iter()
+                    .map(|&[r, g, b]| format!("{}\n", sprite::hex([r, g, b, 255])))
+                    .collect::<String>()
+                    .into_bytes()
+            });
         }
         if file == last_harvest_game::paint::FILE {
             let text = last_harvest_game::prop_fields(&text).ok()?.paint.text();
@@ -231,7 +274,8 @@ pub mod props {
     /// How a prop stands, as its text says, for `Store::stand`.
     pub fn stand(bytes: &[u8]) -> Option<String> {
         let text = prop::read("prop", bytes).ok()?.text;
-        text.lines().find_map(|l| l.trim().strip_prefix("stand ").map(str::to_string))
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix("stand ").map(str::to_string))
     }
 
     /// A prop's PNG from the sprite's frames, views and text, its frame count set to theirs.
@@ -240,16 +284,34 @@ pub mod props {
         let first = sprite.frames.first().ok_or("a prop has a frame")?;
         let (w, h, n) = (first.w, first.h, sprite.frames.len());
         let max = last_harvest_game::PROP_MAX_FRAME as usize;
-        if sprite.frames.iter().any(|f| (f.w, f.h) != (w, h)) || w > max || h > max || n > last_harvest_game::PROP_MAX_FRAMES as usize {
-            return Err(format!("a prop's frames are one size, at most {max} pixels a side, and {} at most", last_harvest_game::PROP_MAX_FRAMES));
+        if sprite.frames.iter().any(|f| (f.w, f.h) != (w, h))
+            || w > max
+            || h > max
+            || n > last_harvest_game::PROP_MAX_FRAMES as usize
+        {
+            return Err(format!(
+                "a prop's frames are one size, at most {max} pixels a side, and {} at most",
+                last_harvest_game::PROP_MAX_FRAMES
+            ));
         }
-        let mut fields = sprite.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()).unwrap_or_else(|| blank(&id));
+        let mut fields = sprite
+            .card
+            .as_deref()
+            .and_then(|t| last_harvest_game::prop_fields(t).ok())
+            .unwrap_or_else(|| blank(&id));
         fields.id = id;
         fields.frames = n as u32;
         fields.broken &= n > 1;
-        fields.clear = sprite.clear_in_3d.iter().map(|&[r, g, b, _]| [r, g, b]).collect();
+        fields.clear = sprite
+            .clear_in_3d
+            .iter()
+            .map(|&[r, g, b, _]| [r, g, b])
+            .collect();
         fields.paint = sprite.paint.clone();
-        let views = sprite.views.as_ref().filter(|[s, e]| (s.w, e.w, s.h) == (w, h, e.h) && s.h <= max);
+        let views = sprite
+            .views
+            .as_ref()
+            .filter(|[s, e]| (s.w, e.w, s.h) == (w, h, e.h) && s.h <= max);
         fields.views = views.map_or(0, |v| v[0].h as u32);
         // Each optional picture keeps its size, and none is packed without views.
         fn sized(f: &Option<Frame>, size: Option<(usize, usize)>) -> Option<&Frame> {
@@ -257,12 +319,23 @@ pub mod props {
         }
         let (top, vh) = (views.map(|_| (w, h)), views.map(|v| v[0].h));
         let (footprint, roof) = (sized(&sprite.footprint, top), sized(&sprite.roof, top));
-        let (north, west) = (sized(&sprite.north, vh.map(|vh| (w, vh))), sized(&sprite.west, vh.map(|vh| (h, vh))));
-        (fields.footprint, fields.roof, fields.north, fields.west) = (footprint.is_some(), roof.is_some(), north.is_some(), west.is_some());
+        let (north, west) = (
+            sized(&sprite.north, vh.map(|vh| (w, vh))),
+            sized(&sprite.west, vh.map(|vh| (h, vh))),
+        );
+        (fields.footprint, fields.roof, fields.north, fields.west) = (
+            footprint.is_some(),
+            roof.is_some(),
+            north.is_some(),
+            west.is_some(),
+        );
         if views.is_none() {
             fields.by_views = None;
         }
-        let (sw, vh) = (fields.sheet_w(w as u32, h as u32) as usize, fields.views as usize);
+        let (sw, vh) = (
+            fields.sheet_w(w as u32, h as u32) as usize,
+            fields.views as usize,
+        );
         let mut sheet = vec![0u8; sw * (h + vh) * 4];
         let mut put = |f: &Frame, x0: usize, y0: usize| {
             for y in 0..f.h {
@@ -272,7 +345,13 @@ pub mod props {
                 }
             }
         };
-        for (k, f) in sprite.frames.iter().chain(footprint).chain(roof).enumerate() {
+        for (k, f) in sprite
+            .frames
+            .iter()
+            .chain(footprint)
+            .chain(roof)
+            .enumerate()
+        {
             put(f, k * w, 0);
         }
         if let Some([south, east]) = views {
@@ -285,7 +364,13 @@ pub mod props {
         if let Some(f) = west {
             put(f, w + h + north.map_or(0, |_| w), h);
         }
-        prop::write_at(&last_harvest_game::prop_text(&fields), sprite.detail, sw as u32, (h + vh) as u32, &sheet)
+        prop::write_at(
+            &last_harvest_game::prop_text(&fields),
+            sprite.detail,
+            sw as u32,
+            (h + vh) as u32,
+            &sheet,
+        )
     }
 
     /// The prop with its stand set from how the editor writes one; carving and turning need the views saved first.
@@ -293,17 +378,44 @@ pub mod props {
         let p = prop::read("prop", bytes)?;
         let mut fields = last_harvest_game::prop_fields(&p.text)?;
         let views = format!("\nviews {}", fields.views.max(1));
-        let stand = last_harvest_game::prop_fields(&format!("[{}]\nstand {how}{views}", fields.id)).map_err(|_| "a prop stands as a prop, slab, figure, ground, carve or turned".to_string())?;
+        let stand = last_harvest_game::prop_fields(&format!("[{}]\nstand {how}{views}", fields.id))
+            .map_err(|_| {
+                "a prop stands as a prop, slab, figure, ground, carve or turned".to_string()
+            })?;
         if stand.by_views.is_some() && fields.views == 0 {
             return Err("draw its views before it stands by them".into());
         }
         (fields.stand, fields.by_views) = (stand.stand, stand.by_views);
         let [fw, fh] = p.frame;
-        prop::write_at(&last_harvest_game::prop_text(&fields), p.detail, fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
+        prop::write_at(
+            &last_harvest_game::prop_text(&fields),
+            p.detail,
+            fields.sheet_w(fw, fh),
+            fh + fields.views,
+            &p.sheet,
+        )
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, alpha: Vec::new(), paint: Default::default() }
+        last_harvest_game::PropFields {
+            id: id.into(),
+            frames: 1,
+            fps: 0.0,
+            open: 0,
+            stand: None,
+            by_views: None,
+            views: 0,
+            footprint: false,
+            roof: false,
+            north: false,
+            west: false,
+            clear: Vec::new(),
+            cover: true,
+            hp: 0.0,
+            broken: false,
+            alpha: Vec::new(),
+            paint: Default::default(),
+        }
     }
 }
 
@@ -329,16 +441,25 @@ pub mod cards {
             if row >= have {
                 return Frame::blank(w, h);
             }
-            let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * cols + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
+            let px = (0..h)
+                .flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * cols + col * w + x) * 4))
+                .map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]])
+                .collect();
             Frame { w, h, px }
         };
-        let rows = std::array::from_fn(|row| (0..if row < 3 { walk } else { CARD_PART_FRAMES }).map(|col| cell(col, row)).collect());
+        let rows = std::array::from_fn(|row| {
+            (0..if row < 3 { walk } else { CARD_PART_FRAMES })
+                .map(|col| cell(col, row))
+                .collect()
+        });
         Some((c.text, rows))
     }
 
     /// Where a card's walking rows wear a ready grenade, one list per facing; empty where it doesn't say.
     fn worn(kind: CardKind, bytes: &[u8]) -> [Vec<Worn>; 3] {
-        let text = card::read_as(kind, "card", bytes).map(|c| c.worn).unwrap_or_default();
+        let text = card::read_as(kind, "card", bytes)
+            .map(|c| c.worn)
+            .unwrap_or_default();
         worn::parse_card(&text).unwrap_or_default()
     }
 
@@ -356,7 +477,10 @@ pub mod cards {
             return (d > 1).then(|| format!("{d}\n").into_bytes());
         }
         if file == sprite::WORN_FILE {
-            let facing = worn(kind, bytes).into_iter().nth(row).filter(|w| !w.is_empty())?;
+            let facing = worn(kind, bytes)
+                .into_iter()
+                .nth(row)
+                .filter(|w| !w.is_empty())?;
             return Some(format!("{}\n", worn::spec(&facing)).into_bytes());
         }
         let k: usize = file.strip_suffix(".png")?.parse().ok()?;
@@ -376,29 +500,53 @@ pub mod cards {
             CardKind::Player => last_harvest_game::player_fields(text)?.id,
         };
         if card_id != id {
-            return Err(format!("the card's id is [{card_id}], but {} needs [{id}]", part.name));
+            return Err(format!(
+                "the card's id is [{card_id}], but {} needs [{id}]",
+                part.name
+            ));
         }
         let first = part.frames.first().ok_or("a card's part has frames")?;
         let (w, h) = (first.w, first.h);
         let walking = row < 3 && kind == CardKind::Enemy;
-        let fits = if walking { (1..=last_harvest_game::MAX_WALK).contains(&part.frames.len()) } else { part.frames.len() == CARD_PART_FRAMES };
+        let fits = if walking {
+            (1..=last_harvest_game::MAX_WALK).contains(&part.frames.len())
+        } else {
+            part.frames.len() == CARD_PART_FRAMES
+        };
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
-            return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
+            return Err(format!(
+                "an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size",
+                last_harvest_game::MAX_WALK
+            ));
         }
         let most = last_harvest_game::card_frame_most(part.detail) as usize;
         if w > most || h > most {
-            return Err(format!("a card's frames are at most {most}x{most} pixels at detail {}", part.detail));
+            return Err(format!(
+                "a card's frames are at most {most}x{most} pixels at detail {}",
+                part.detail
+            ));
         }
-        let was = existing.and_then(|b| card::read_as(kind, "card", b).ok()).map_or(1, |c| c.detail);
-        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default().map(|f| sprite::redetailed_worn(&f, was, part.detail));
+        let was = existing
+            .and_then(|b| card::read_as(kind, "card", b).ok())
+            .map_or(1, |c| c.detail);
+        let mut facings = existing
+            .map(|b| worn(kind, b))
+            .unwrap_or_default()
+            .map(|f| sprite::redetailed_worn(&f, was, part.detail));
         if kind == CardKind::Player && row < 3 {
             facings[row] = part.worn.clone();
         }
         let mut rows = match existing {
-            Some(bytes) => rows(kind, bytes).ok_or("the saved card can't be read, so saving would lose its other parts")?.1,
+            Some(bytes) => {
+                rows(kind, bytes)
+                    .ok_or("the saved card can't be read, so saving would lose its other parts")?
+                    .1
+            }
             None => {
                 let t = sprite::card_template();
-                std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
+                std::array::from_fn(|r| {
+                    t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec()
+                })
             }
         };
         for f in rows.iter_mut().flatten().filter(|_| was != part.detail) {
@@ -409,14 +557,22 @@ pub mod cards {
                 *f = f.resized(w, h);
             }
         }
-        let walk = if row < 3 { part.frames.len() } else { rows[0].len() };
+        let walk = if row < 3 {
+            part.frames.len()
+        } else {
+            rows[0].len()
+        };
         for r in rows.iter_mut().take(3) {
             let last = r.last().cloned().unwrap_or_else(|| Frame::blank(w, h));
             r.resize(walk, last);
         }
         rows[row] = part.frames.clone();
         let text = match kind {
-            CardKind::Enemy => last_harvest_game::set_card_field(text, "walk", (walk != 3).then(|| walk.to_string()).as_deref()),
+            CardKind::Enemy => last_harvest_game::set_card_field(
+                text,
+                "walk",
+                (walk != 3).then(|| walk.to_string()).as_deref(),
+            ),
             CardKind::Player => text.to_string(),
         };
         let cols = walk.max(3);
@@ -433,8 +589,22 @@ pub mod cards {
                 }
             }
         }
-        let bytes = card::write_as(kind, &text, &worn::card_text(&facings), part.detail, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)?;
-        card::with_sound(&bytes, existing.and_then(|b| card::sound(b).ok().flatten()).map(|(_, s)| s))
+        let bytes = card::write_as(
+            kind,
+            &text,
+            &worn::card_text(&facings),
+            part.detail,
+            (w * cols) as u32,
+            (h * height) as u32,
+            height as u32,
+            &sheet,
+        )?;
+        card::with_sound(
+            &bytes,
+            existing
+                .and_then(|b| card::sound(b).ok().flatten())
+                .map(|(_, s)| s),
+        )
     }
 
     pub use last_harvest_pack::browser::{from_text, to_text};
@@ -442,7 +612,11 @@ pub mod cards {
     /// The part names of every card of `kind` among `ids`, each with a saved copy, sorted by card.
     pub fn listing(kind: CardKind, mut ids: Vec<String>) -> Vec<(String, bool)> {
         ids.sort();
-        ids.iter().filter_map(|id| sprite::card_names_of(kind, id)).flatten().map(|n| (n, true)).collect()
+        ids.iter()
+            .filter_map(|id| sprite::card_names_of(kind, id))
+            .flatten()
+            .map(|n| (n, true))
+            .collect()
     }
 
     /// A card's kind and id, read from a PNG and the name it came with: the name's ending when it has one, else
@@ -461,7 +635,9 @@ pub mod cards {
                         CardKind::Player => last_harvest_game::player_fields(&c.text)?.id,
                     };
                     if c.frame[0] > 64 || c.frame[1] > 64 {
-                        return Err("its frames are over 64 pixels, more than the game takes".into());
+                        return Err(
+                            "its frames are over 64 pixels, more than the game takes".into()
+                        );
                     }
                     return Ok((kind, id));
                 }
@@ -481,23 +657,79 @@ mod tests {
     fn a_prop_keeps_its_views_and_stands_by_them() {
         let mut frame = Frame::blank(4, 3);
         frame.set(1, 1, [9, 9, 9, 255]);
-        let (mut south, mut east, mut footprint) = (Frame::blank(4, 5), Frame::blank(3, 5), Frame::blank(4, 3));
+        let (mut south, mut east, mut footprint) =
+            (Frame::blank(4, 5), Frame::blank(3, 5), Frame::blank(4, 3));
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
-        assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
-        let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
-        let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
-        let back = Sprite::from_files("PROP_POST", &["0.png", "1.png", "south.png", "east.png", "footprint.png", sprite::CARD_FILE].map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
-        assert_eq!((&back.frames, &back.views, &back.footprint), (&vec![frame; 2], &Some([south, east]), &Some(footprint)));
+        let blank = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: "PROP_POST".into(),
+            frames: vec![frame.clone(); 2],
+            views: None,
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: None,
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
+        assert!(
+            super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve")
+                .unwrap_err()
+                .contains("views")
+        );
+        let s = Sprite {
+            views: Some([south.clone(), east.clone()]),
+            footprint: Some(footprint.clone()),
+            ..blank
+        };
+        let bytes =
+            super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
+        let back = Sprite::from_files(
+            "PROP_POST",
+            &[
+                "0.png",
+                "1.png",
+                "south.png",
+                "east.png",
+                "footprint.png",
+                sprite::CARD_FILE,
+            ]
+            .map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap())),
+        )
+        .unwrap();
+        assert_eq!(
+            (&back.frames, &back.views, &back.footprint),
+            (&vec![frame; 2], &Some([south, east]), &Some(footprint))
+        );
         assert_eq!(super::props::stand(&bytes).as_deref(), Some("turned"));
-        let cleared = Sprite { clear_in_3d: vec![[9, 9, 9, 255]], ..back };
+        let cleared = Sprite {
+            clear_in_3d: vec![[9, 9, 9, 255]],
+            ..back
+        };
         let bytes = super::props::from_sprite(&cleared).unwrap();
-        assert_eq!(super::props::file(&bytes, sprite::CLEAR_FILE).as_deref(), Some(&b"#090909\n"[..]), "the prop's text keeps its colors cleared in 3D");
+        assert_eq!(
+            super::props::file(&bytes, sprite::CLEAR_FILE).as_deref(),
+            Some(&b"#090909\n"[..]),
+            "the prop's text keeps its colors cleared in 3D"
+        );
         let paint = last_harvest_game::paint::parse("paint 090909\ncoat 4A6FA5").unwrap();
-        let bytes = super::props::from_sprite(&Sprite { paint: paint.clone(), ..cleared }).unwrap();
-        let back = Sprite::from_files("PROP_POST", &["0.png", "1.png", last_harvest_game::paint::FILE].map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
+        let bytes = super::props::from_sprite(&Sprite {
+            paint: paint.clone(),
+            ..cleared
+        })
+        .unwrap();
+        let back = Sprite::from_files(
+            "PROP_POST",
+            &["0.png", "1.png", last_harvest_game::paint::FILE]
+                .map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap())),
+        )
+        .unwrap();
         assert_eq!(back.paint, paint, "and its coats");
     }
 
@@ -524,10 +756,26 @@ mod tests {
             clear_in_3d: Vec::new(),
             paint: Default::default(),
         };
-        let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "carve").unwrap();
-        let files = ["0.png", "south.png", "east.png", sprite::ROOF_FILE, sprite::NORTH_FILE, sprite::WEST_FILE, sprite::CARD_FILE];
-        let back = Sprite::from_files("PROP_STACK", &files.map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
-        assert_eq!((&back.views, &back.roof, &back.north, &back.west), (&s.views, &s.roof, &s.north, &s.west));
+        let bytes =
+            super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "carve").unwrap();
+        let files = [
+            "0.png",
+            "south.png",
+            "east.png",
+            sprite::ROOF_FILE,
+            sprite::NORTH_FILE,
+            sprite::WEST_FILE,
+            sprite::CARD_FILE,
+        ];
+        let back = Sprite::from_files(
+            "PROP_STACK",
+            &files.map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap())),
+        )
+        .unwrap();
+        assert_eq!(
+            (&back.views, &back.roof, &back.north, &back.west),
+            (&s.views, &s.roof, &s.north, &s.west)
+        );
         assert!(super::props::file(&bytes, sprite::FOOTPRINT_FILE).is_none());
     }
 
@@ -552,11 +800,34 @@ mod tests {
         let sheet = vec![0u8; 24 * 40 * 4];
         let enemy = write_as(Kind::Enemy, "[bat]", "", 1, 24, 40, 5, &sheet).unwrap();
         let player = write_as(Kind::Player, "[jo]\nname Jo", "", 1, 24, 40, 5, &sheet).unwrap();
-        assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
-        assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
-        assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");
-        let modded = write_as(Kind::Player, "[jo]\nstart normal urumi", "", 1, 24, 40, 5, &sheet).unwrap();
-        assert_eq!(identify("jo.player.png", &modded), Ok((CardKind::Player, "jo".into())), "a weapon the mod's own data adds");
+        assert_eq!(
+            identify("x.png", &enemy),
+            Ok((CardKind::Enemy, "bat".into()))
+        );
+        assert_eq!(
+            identify("download.png", &player),
+            Ok((CardKind::Player, "jo".into()))
+        );
+        assert!(
+            identify("jo.enemy.png", &player).is_err(),
+            "a name's ending is believed"
+        );
+        let modded = write_as(
+            Kind::Player,
+            "[jo]\nstart normal urumi",
+            "",
+            1,
+            24,
+            40,
+            5,
+            &sheet,
+        )
+        .unwrap();
+        assert_eq!(
+            identify("jo.player.png", &modded),
+            Ok((CardKind::Player, "jo".into())),
+            "a weapon the mod's own data adds"
+        );
     }
 }
 
@@ -581,7 +852,11 @@ mod fs {
     impl Default for FsStore {
         fn default() -> Self {
             let dir = sprite::folder();
-            Self { cards: dir.with_file_name("enemies"), dir, catalog: sprite::catalog_file() }
+            Self {
+                cards: dir.with_file_name("enemies"),
+                dir,
+                catalog: sprite::catalog_file(),
+            }
         }
     }
 
@@ -607,47 +882,82 @@ mod fs {
         /// A farm's data file, in a `farms` folder beside the cards.
         fn farm_path(&self, file: &str) -> Option<PathBuf> {
             last_harvest_game::farm_of_file(file)?;
-            Some(self.cards.with_file_name("farms").join(file.strip_prefix(last_harvest_game::FARM_DIR)?))
+            Some(
+                self.cards
+                    .with_file_name("farms")
+                    .join(file.strip_prefix(last_harvest_game::FARM_DIR)?),
+            )
         }
 
         /// Props keep to a `props` folder beside the cards.
         fn prop_path(&self, id: &str) -> PathBuf {
-            self.cards.with_file_name("props").join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
+            self.cards
+                .with_file_name("props")
+                .join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
         }
 
         /// The PNG a card's part or a prop lives in, which git keeps whole.
         fn packed_path(&self, name: &str) -> Option<PathBuf> {
-            props::id(name).map(|id| self.prop_path(&id)).or_else(|| self.card_path(name))
+            props::id(name)
+                .map(|id| self.prop_path(&id))
+                .or_else(|| self.card_path(name))
         }
 
         fn prop_ids(&self) -> Vec<String> {
-            let found = std::fs::read_dir(self.cards.with_file_name("props")).into_iter().flatten().flatten();
-            let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_pack::prop::EXTENSION).map(str::to_string));
-            let mut ids: Vec<String> = ids.filter(|id| last_harvest_game::valid_map_id(id)).collect();
+            let found = std::fs::read_dir(self.cards.with_file_name("props"))
+                .into_iter()
+                .flatten()
+                .flatten();
+            let ids = found.filter_map(|e| {
+                e.file_name()
+                    .into_string()
+                    .ok()?
+                    .strip_suffix(last_harvest_pack::prop::EXTENSION)
+                    .map(str::to_string)
+            });
+            let mut ids: Vec<String> = ids
+                .filter(|id| last_harvest_game::valid_map_id(id))
+                .collect();
             ids.sort();
             ids
         }
 
         fn ids(&self, kind: CardKind) -> Vec<String> {
-            let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
-            found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
+            let found = std::fs::read_dir(self.folder(kind))
+                .into_iter()
+                .flatten()
+                .flatten();
+            found
+                .filter_map(|e| {
+                    e.file_name()
+                        .into_string()
+                        .ok()?
+                        .strip_suffix(kind.extension())
+                        .map(str::to_string)
+                })
+                .collect()
         }
 
         fn enemy_path(&self, id: &str) -> PathBuf {
-            self.folder(CardKind::Enemy).join(format!("{id}{}", CardKind::Enemy.extension()))
+            self.folder(CardKind::Enemy)
+                .join(format!("{id}{}", CardKind::Enemy.extension()))
         }
 
         /// Writes an enemy card's own death sound into its saved PNG, or takes it out with None.
         fn put_sound(&self, id: &str, sound: Option<&[u8]>) -> Result<(), String> {
             let path = self.enemy_path(id);
             let bytes = std::fs::read(&path).map_err(|_| "save the card first".to_string())?;
-            std::fs::write(&path, last_harvest_pack::card::with_sound(&bytes, sound)?).map_err(|e| format!("{}: {e}", path.display()))
+            std::fs::write(&path, last_harvest_pack::card::with_sound(&bytes, sound)?)
+                .map_err(|e| format!("{}: {e}", path.display()))
         }
     }
 
     impl Store for FsStore {
         fn sound_groups(&self) -> Vec<String> {
-            let found = std::fs::read_dir(self.dir.with_file_name("sounds")).into_iter().flatten().flatten();
+            let found = std::fs::read_dir(self.dir.with_file_name("sounds"))
+                .into_iter()
+                .flatten()
+                .flatten();
             super::sound_groups(found.filter_map(|e| e.file_name().into_string().ok()))
         }
 
@@ -674,7 +984,9 @@ mod fs {
             if let Some(id) = props::id(&sprite.name) {
                 return self.put_prop(&id, &props::from_sprite(sprite)?);
             }
-            let Some(path) = self.card_path(&sprite.name) else { return sprite.save(&self.dir) };
+            let Some(path) = self.card_path(&sprite.name) else {
+                return sprite.save(&self.dir);
+            };
             let bytes = cards::with_part(std::fs::read(&path).ok().as_deref(), sprite)?;
             let dir = path.parent().unwrap_or(&self.cards);
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -713,9 +1025,15 @@ mod fs {
         }
 
         fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
-            let Some(path) = self.packed_path(name) else { return Repo::open(&self.dir)?.read(id, name, file) };
+            let Some(path) = self.packed_path(name) else {
+                return Repo::open(&self.dir)?.read(id, name, file);
+            };
             let bytes = Repo::open(path.parent()?)?.show(id, path.file_name()?.to_str()?)?;
-            if props::id(name).is_some() { props::file(&bytes, file) } else { cards::file(&bytes, name, file) }
+            if props::id(name).is_some() {
+                props::file(&bytes, file)
+            } else {
+                cards::file(&bytes, name, file)
+            }
         }
 
         fn lospec(&self, name: &str) -> Result<String, String> {
@@ -724,18 +1042,31 @@ mod fs {
             }
             // The .json, since lospec.com never answers a .hex for a name it doesn't know.
             let url = format!("https://lospec.com/palette-list/{name}.json");
-            let out = std::process::Command::new("curl").args(["-sSfL", "--max-time", "10", &url]).output().map_err(|e| format!("curl: {e}"))?;
+            let out = std::process::Command::new("curl")
+                .args(["-sSfL", "--max-time", "10", &url])
+                .output()
+                .map_err(|e| format!("curl: {e}"))?;
             if !out.status.success() {
-                return Err(format!("Lospec has no palette called {name}, or isn't answering"));
+                return Err(format!(
+                    "Lospec has no palette called {name}, or isn't answering"
+                ));
             }
             let json = String::from_utf8_lossy(&out.stdout);
-            let list = json.split_once("\"colors\":[").and_then(|(_, rest)| rest.split_once(']')).map(|(list, _)| list).ok_or_else(|| format!("{url} lists no colors"))?;
-            Ok(list.split(',').map(|c| format!("{}\n", c.trim().trim_matches('"'))).collect())
+            let list = json
+                .split_once("\"colors\":[")
+                .and_then(|(_, rest)| rest.split_once(']'))
+                .map(|(list, _)| list)
+                .ok_or_else(|| format!("{url} lists no colors"))?;
+            Ok(list
+                .split(',')
+                .map(|c| format!("{}\n", c.trim().trim_matches('"')))
+                .collect())
         }
 
         fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {
             let (kind, id) = cards::identify(file, bytes)?;
-            let names = sprite::card_names_of(kind, &id).ok_or_else(|| format!("its id [{id}] needs to be letters, digits and _"))?;
+            let names = sprite::card_names_of(kind, &id)
+                .ok_or_else(|| format!("its id [{id}] needs to be letters, digits and _"))?;
             let dir = self.folder(kind);
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             let path = dir.join(format!("{id}{}", kind.extension()));
@@ -762,7 +1093,9 @@ mod fs {
         }
 
         fn prop_bytes(&self, id: &str) -> Option<Vec<u8>> {
-            last_harvest_game::valid_map_id(id).then(|| std::fs::read(self.prop_path(id)).ok()).flatten()
+            last_harvest_game::valid_map_id(id)
+                .then(|| std::fs::read(self.prop_path(id)).ok())
+                .flatten()
         }
 
         fn put_prop(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
@@ -771,21 +1104,40 @@ mod fs {
             }
             last_harvest_pack::prop::read(id, bytes)?;
             let path = self.prop_path(id);
-            std::fs::create_dir_all(path.parent().unwrap_or(&self.cards)).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(path.parent().unwrap_or(&self.cards))
+                .map_err(|e| e.to_string())?;
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))
         }
 
         fn map_ids(&self) -> Vec<String> {
-            let found = std::fs::read_dir(self.maps()).into_iter().flatten().flatten();
-            let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_game::MAP_EXTENSION).map(str::to_string));
-            let mut ids: Vec<String> = ids.filter(|id| last_harvest_game::valid_map_id(id)).collect();
+            let found = std::fs::read_dir(self.maps())
+                .into_iter()
+                .flatten()
+                .flatten();
+            let ids = found.filter_map(|e| {
+                e.file_name()
+                    .into_string()
+                    .ok()?
+                    .strip_suffix(last_harvest_game::MAP_EXTENSION)
+                    .map(str::to_string)
+            });
+            let mut ids: Vec<String> = ids
+                .filter(|id| last_harvest_game::valid_map_id(id))
+                .collect();
             ids.sort();
             ids
         }
 
         fn read_map(&self, id: &str) -> Option<String> {
             let ok = last_harvest_game::valid_map_id(id);
-            ok.then(|| std::fs::read_to_string(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION))).ok()).flatten()
+            ok.then(|| {
+                std::fs::read_to_string(
+                    self.maps()
+                        .join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)),
+                )
+                .ok()
+            })
+            .flatten()
         }
 
         fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
@@ -793,7 +1145,12 @@ mod fs {
                 return Err(format!("{id} can't name a map"));
             }
             std::fs::create_dir_all(self.maps()).map_err(|e| e.to_string())?;
-            std::fs::write(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)), text).map_err(|e| e.to_string())
+            std::fs::write(
+                self.maps()
+                    .join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)),
+                text,
+            )
+            .map_err(|e| e.to_string())
         }
 
         fn read_table(&self, file: &str) -> Option<String> {
@@ -801,7 +1158,9 @@ mod fs {
                 return std::fs::read_to_string(path).ok();
             }
             last_harvest_game::built_in_table(file)?;
-            std::fs::read_to_string(self.catalog.with_file_name(file)).ok().or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
+            std::fs::read_to_string(self.catalog.with_file_name(file))
+                .ok()
+                .or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
         }
 
         /// Writes a data file beside the catalog, which the game's build takes in, once the game would read it as
@@ -809,7 +1168,8 @@ mod fs {
         fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
             if let Some(path) = self.farm_path(file) {
                 last_harvest_game::check_table(file, text)?;
-                std::fs::create_dir_all(path.parent().unwrap_or(&self.cards)).map_err(|e| e.to_string())?;
+                std::fs::create_dir_all(path.parent().unwrap_or(&self.cards))
+                    .map_err(|e| e.to_string())?;
                 return std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()));
             }
             last_harvest_game::check_own_table(file, text)?;
@@ -824,7 +1184,9 @@ mod fs {
 
         fn delete_prop(&self, id: &str) -> Result<(), String> {
             let name = props::name(id);
-            if !last_harvest_game::valid_map_id(id) || last_harvest_game::art::ALL.iter().any(|(n, _)| *n == name) {
+            if !last_harvest_game::valid_map_id(id)
+                || last_harvest_game::art::ALL.iter().any(|(n, _)| *n == name)
+            {
                 return Err(format!("{name} is the game's own"));
             }
             let path = self.prop_path(id);
@@ -832,15 +1194,24 @@ mod fs {
         }
 
         fn farm_ids(&self) -> Vec<String> {
-            let found = std::fs::read_dir(self.cards.with_file_name("farms")).into_iter().flatten().flatten();
-            let files = found.filter_map(|e| e.file_name().into_string().ok()).map(|n| format!("{}{n}", last_harvest_game::FARM_DIR));
+            let found = std::fs::read_dir(self.cards.with_file_name("farms"))
+                .into_iter()
+                .flatten()
+                .flatten();
+            let files = found
+                .filter_map(|e| e.file_name().into_string().ok())
+                .map(|n| format!("{}{n}", last_harvest_game::FARM_DIR));
             super::farm_ids(files)
         }
 
         fn delete_table(&self, file: &str) -> Result<(), String> {
-            let path = self.farm_path(file).ok_or_else(|| format!("{file} isn't a farm's"))?;
+            let path = self
+                .farm_path(file)
+                .ok_or_else(|| format!("{file} isn't a farm's"))?;
             match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {e}", path.display())),
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("{}: {e}", path.display()))
+                }
                 _ => Ok(()),
             }
         }
@@ -849,7 +1220,9 @@ mod fs {
             if !last_harvest_game::valid_map_id(id) {
                 return Err(format!("{id} can't name a map"));
             }
-            let path = self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION));
+            let path = self
+                .maps()
+                .join(format!("{id}{}", last_harvest_game::MAP_EXTENSION));
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
         }
     }

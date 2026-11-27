@@ -39,9 +39,14 @@ pub enum Command {
 
 pub fn listen() -> Option<Receiver<Command>> {
     std::env::var_os("LAST_HARVEST_DEBUG")?;
-    let pipe = std::env::var_os("LAST_HARVEST_PIPE").map_or_else(|| PathBuf::from(PIPE), PathBuf::from);
+    let pipe =
+        std::env::var_os("LAST_HARVEST_PIPE").map_or_else(|| PathBuf::from(PIPE), PathBuf::from);
     let _ = std::fs::remove_file(&pipe);
-    if !std::process::Command::new("mkfifo").arg(&pipe).status().is_ok_and(|s| s.success()) {
+    if !std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
         log!("debug: mkfifo {} failed", pipe.display());
         return None;
     }
@@ -81,7 +86,10 @@ fn parse(line: &str) -> Option<Command> {
             let mut keys: Vec<_> = (0..=10)
                 .map(|i| {
                     let k = i as f32 / 10.0;
-                    (dur * k, Some([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]))
+                    (
+                        dur * k,
+                        Some([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]),
+                    )
                 })
                 .collect();
             keys.push((dur + 1.0 / 60.0, None));
@@ -155,7 +163,12 @@ impl Injector {
         }
         self.presses.retain(|&(_, left)| left > 0.0);
 
-        let touch = self.touch.iter().rev().find(|(at, _)| *at <= self.t).map(|&(_, p)| p);
+        let touch = self
+            .touch
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= self.t)
+            .map(|&(_, p)| p);
         if self.touch.last().is_some_and(|&(at, _)| self.t > at) {
             self.touch.clear();
         }
@@ -164,7 +177,12 @@ impl Injector {
     }
 }
 
-pub fn save_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn save_png(
+    path: &std::path::Path,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
     let tmp = path.with_extension("tmp");
     let write = || -> Result<(), Box<dyn std::error::Error>> {
         let mut enc = png::Encoder::new(File::create(&tmp)?, width, height);

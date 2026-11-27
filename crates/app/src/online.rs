@@ -67,7 +67,10 @@ impl Online {
                 crate::log!("online: no ICE servers from the relay ({e}); peers on one network still connect");
                 IceConfig::default()
             });
-            crate::log!("online: joining with {} ICE server(s)", config.servers.len());
+            crate::log!(
+                "online: joining with {} ICE server(s)",
+                config.servers.len()
+            );
             self.socket = Some(PeerSocket::connect(room, &config));
             (self.ice, self.joined, self.waited) = (None, false, 0.0);
         }
@@ -102,7 +105,10 @@ impl Online {
             match lan::host(port) {
                 Ok(()) => {
                     let address = lan::local_address().map(|a| a.to_string());
-                    crate::log!("online: hosting on this network: others join ws://{}:{port}", address.as_deref().unwrap_or("<this device>"));
+                    crate::log!(
+                        "online: hosting on this network: others join ws://{}:{port}",
+                        address.as_deref().unwrap_or("<this device>")
+                    );
                     game.set_lan_address(address);
                 }
                 Err(e) => {

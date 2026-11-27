@@ -9,8 +9,12 @@ mod ground;
 mod text;
 pub use farm::parse as parse_farm;
 pub use farm::set as set_farm;
-pub use farms::{DIR as FARM_DIR, GROUND_END as FARM_GROUND_END, ID_MAX as FARM_ID_MAX, file as farm_file, ids as farm_ids, install as install_farms, of_file as farm_of_file, use_farm, use_farm_text, valid_id as valid_farm_id};
 use farms::with_every_ground;
+pub use farms::{
+    DIR as FARM_DIR, GROUND_END as FARM_GROUND_END, ID_MAX as FARM_ID_MAX, file as farm_file,
+    ids as farm_ids, install as install_farms, of_file as farm_of_file, use_farm, use_farm_text,
+    valid_id as valid_farm_id,
+};
 
 /// Checks a hand-made map as the game loads it: against the ground of every farm installed.
 pub fn check_map_on_any_farm(file: &str, text: String) -> Result<crate::data::LoadedMap, String> {
@@ -22,8 +26,12 @@ pub fn check_farm_codes(f: &farm::Farm) -> Result<(), String> {
     farm::check_codes(f, ground::ground())
 }
 pub(super) use ground::crop_piece;
-pub use ground::{parse as parse_ground, set as set_ground, Stalk, Sway};
-pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
+pub use ground::{Stalk, Sway, parse as parse_ground, set as set_ground};
+pub use text::{
+    EXTENSION as MAP_EXTENSION, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind,
+    PropLine, Tough, check as check_map, ground_codes, parse_props, props as map_props,
+    valid_id as valid_map_id,
+};
 
 pub const TILE: f32 = 16.0;
 
@@ -65,7 +73,11 @@ pub struct Prop {
 
 /// A catalog sprite's frames by name, however many it has.
 fn named(name: &str) -> Option<&'static [Art]> {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).filter(|f| !f.is_empty())
+    art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| *f)
+        .filter(|f| !f.is_empty())
 }
 
 impl Prop {
@@ -75,7 +87,23 @@ impl Prop {
 
     /// A prop that blocks nothing and never breaks.
     fn new(frames: &'static [Art], fps: f32, x: f32, y: f32, base: f32, depth: f32) -> Self {
-        Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], area: [0.0; 4], reach: 0.0, cover: false, fence: false }
+        Prop {
+            frames,
+            fps,
+            x,
+            y,
+            base,
+            depth,
+            hp: 0.0,
+            full: 0.0,
+            flash: 0.0,
+            broken: None,
+            cells: [0; 4],
+            area: [0.0; 4],
+            reach: 0.0,
+            cover: false,
+            fence: false,
+        }
     }
 
     pub fn frame(&self, t: f32) -> Art {
@@ -94,13 +122,21 @@ impl Prop {
             _ => return Some(clip(self.area, x, y)).filter(|b| b[2] > b[0] && b[3] > b[1]),
         };
         let (cx, cy) = (x as f32 * TILE - self.x, y as f32 * TILE - self.y);
-        let span = |c: f32, n: usize| (c.max(0.0) as usize).min(n)..((c + TILE).max(0.0) as usize).min(n);
+        let span =
+            |c: f32, n: usize| (c.max(0.0) as usize).min(n)..((c + TILE).max(0.0) as usize).min(n);
         art::with_outline(outline, |solid, [w, h]| {
             let mut b: Option<[f32; 4]> = None;
             for j in span(cy, h) {
                 for i in span(cx, w).filter(|&i| solid(i, j)) {
                     let (lx, ly) = (i as f32 - cx, j as f32 - cy);
-                    b = Some(b.map_or([lx, ly, lx + 1.0, ly + 1.0], |b| [b[0].min(lx), b[1].min(ly), b[2].max(lx + 1.0), b[3].max(ly + 1.0)]));
+                    b = Some(b.map_or([lx, ly, lx + 1.0, ly + 1.0], |b| {
+                        [
+                            b[0].min(lx),
+                            b[1].min(ly),
+                            b[2].max(lx + 1.0),
+                            b[3].max(ly + 1.0),
+                        ]
+                    }));
                 }
             }
             b.map(|b| b.map(|v| v as u8))
@@ -114,7 +150,11 @@ impl Prop {
 
     /// Steps of open ground a zombie would rather walk than chew through it; 0 for one that doesn't break.
     fn chew_steps(&self) -> u16 {
-        if self.full > 0.0 { (1.0 + self.full / CHEW_HP_PER_STEP).min(MAX_STEP as f32) as u16 } else { 0 }
+        if self.full > 0.0 {
+            (1.0 + self.full / CHEW_HP_PER_STEP).min(MAX_STEP as f32) as u16
+        } else {
+            0
+        }
     }
 }
 
@@ -145,8 +185,18 @@ struct Fence {
     gate_post: Option<&'static [Art]>,
 }
 
-const RAIL: Fence = Fence { top: &art::RAIL_TOP, side: &art::RAIL_SIDE, bottom: &art::RAIL_BOTTOM, gate_post: None };
-const PICKET: Fence = Fence { top: &art::PICKET_TOP, side: &art::PICKET_SIDE, bottom: &art::PICKET_BOTTOM, gate_post: Some(&art::SKULL_FENCE) };
+const RAIL: Fence = Fence {
+    top: &art::RAIL_TOP,
+    side: &art::RAIL_SIDE,
+    bottom: &art::RAIL_BOTTOM,
+    gate_post: None,
+};
+const PICKET: Fence = Fence {
+    top: &art::PICKET_TOP,
+    side: &art::PICKET_SIDE,
+    bottom: &art::PICKET_BOTTOM,
+    gate_post: Some(&art::SKULL_FENCE),
+};
 
 /// How a placed prop stands in the way: whether it stops shots, its hit points, 0 if it doesn't break, and what
 /// shows once it does.
@@ -161,17 +211,29 @@ struct Toughness {
 /// piece as `props.txt` says fences do, and the game's own as it lists them.
 /// Whether a sprite is a piece of either fence style.
 fn is_fence(a: Art) -> bool {
-    [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a) || f.gate_post.is_some_and(|g| g.contains(&a)))
+    [&RAIL, &PICKET].iter().any(|f| {
+        f.top.contains(&a)
+            || f.side.contains(&a)
+            || f.bottom.contains(&a)
+            || f.gate_post.is_some_and(|g| g.contains(&a))
+    })
 }
 
 fn toughness(a: Art) -> Toughness {
     if let Some(p) = super::props::named_of(a) {
-        return Toughness { cover: p.cover, hp: p.hp, broken: p.broken_for(a) };
+        return Toughness {
+            cover: p.cover,
+            hp: p.hp,
+            broken: p.broken_for(a),
+        };
     }
     if is_fence(a) {
         return Toughness::fence();
     }
-    let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n));
+    let kind = art::ALL
+        .iter()
+        .find(|(_, f)| f.contains(&a))
+        .and_then(|(n, _)| text::prop_kind(n));
     kind.map_or(Toughness::other(), Toughness::of)
 }
 
@@ -187,12 +249,20 @@ fn open_of(a: Art) -> usize {
     if let Some(p) = super::props::named_of(a) {
         return p.open;
     }
-    art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n)).map_or(0, |k| k.open)
+    art::ALL
+        .iter()
+        .find(|(_, f)| f.contains(&a))
+        .and_then(|(n, _)| text::prop_kind(n))
+        .map_or(0, |k| k.open)
 }
 
 impl Toughness {
     fn of(k: &PropKind) -> Self {
-        Toughness { cover: k.cover, hp: k.hp, broken: None }
+        Toughness {
+            cover: k.cover,
+            hp: k.hp,
+            broken: None,
+        }
     }
 
     /// How fence pieces stand in the way.
@@ -207,7 +277,11 @@ impl Toughness {
 
     /// These, with what a prop line says over them.
     fn with(self, t: Tough) -> Self {
-        Toughness { cover: t.cover.unwrap_or(self.cover), hp: t.hp.unwrap_or(self.hp), ..self }
+        Toughness {
+            cover: t.cover.unwrap_or(self.cover),
+            hp: t.hp.unwrap_or(self.hp),
+            ..self
+        }
     }
 }
 
@@ -284,7 +358,11 @@ fn tiles(px: f32) -> usize {
 
 /// One frame of a sprite the farm puts down, at random when it has several.
 fn one_of(rng: &mut Rng, set: &'static [Art]) -> &'static [Art] {
-    let k = if set.len() > 1 { rng.below(set.len()) } else { 0 };
+    let k = if set.len() > 1 {
+        rng.below(set.len())
+    } else {
+        0
+    };
     &set[k..k + 1]
 }
 
@@ -296,11 +374,21 @@ const NO_BOX: [u8; 4] = [0; 4];
 fn clip(area: [f32; 4], x: usize, y: usize) -> [u8; 4] {
     let (cx, cy) = (x as f32 * TILE, y as f32 * TILE);
     let at = |v: f32, c: f32| (v - c).clamp(0.0, TILE) as u8;
-    [at(area[0], cx), at(area[1], cy), at(area[2], cx), at(area[3], cy)]
+    [
+        at(area[0], cx),
+        at(area[1], cy),
+        at(area[2], cx),
+        at(area[3], cy),
+    ]
 }
 
 fn union(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
-    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+    [
+        a[0].min(b[0]),
+        a[1].min(b[1]),
+        a[2].max(b[2]),
+        a[3].max(b[3]),
+    ]
 }
 
 /// Where a picture's opaque pixels are, as x0, y0, x1, y1 from its top-left; the whole picture when none are.
@@ -323,7 +411,11 @@ impl Map {
         let (dirt, tufted) = (ground_art(f.ground), ground_art(f.tufted));
         let mut ground = Vec::with_capacity(w * h);
         for _ in 0..w * h {
-            ground.push(if f.tufts > 0 && rng.below(f.tufts) == 0 { tufted[rng.below(tufted.len())] } else { dirt[rng.below(dirt.len())] });
+            ground.push(if f.tufts > 0 && rng.below(f.tufts) == 0 {
+                tufted[rng.below(tufted.len())]
+            } else {
+                dirt[rng.below(dirt.len())]
+            });
         }
         let mut map = Map {
             w,
@@ -364,8 +456,15 @@ impl Map {
         map.gas_station(rng, road);
         let mut stood = Vec::new();
         for b in f.buildings.iter().filter(|b| !b.sprites.is_empty()) {
-            let k = if b.sprites.len() > 1 { rng.below(b.sprites.len()) } else { 0 };
-            stood.extend(map.place_near(rng, b.sprites[k], [w / 2, h / 2], b.within, b.margin).map(|spot| (b, spot)));
+            let k = if b.sprites.len() > 1 {
+                rng.below(b.sprites.len())
+            } else {
+                0
+            };
+            stood.extend(
+                map.place_near(rng, b.sprites[k], [w / 2, h / 2], b.within, b.margin)
+                    .map(|spot| (b, spot)),
+            );
         }
         for &(b, (x, y, bw, bh)) in &stood {
             map.path_to_road(x + b.door.min(bw - 1), y + bh, road);
@@ -373,16 +472,31 @@ impl Map {
         map.autotile_paths();
         // The last building's props go down first.
         for &(b, (x, y, bw, bh)) in stood.iter().rev() {
-            let (middle, step) = ([x + bw / 2, y + bh / 2], [x + b.door.min(bw - 1), y + bh + 2]);
+            let (middle, step) = (
+                [x + bw / 2, y + bh / 2],
+                [x + b.door.min(bw - 1), y + bh + 2],
+            );
             for near in &b.near {
                 match *near {
                     farm::Near::Windmill => map.windmill(rng, middle),
                     farm::Near::Graveyard => map.graveyard(rng, middle),
-                    farm::Near::Prop { frames, within, door } => _ = map.place_near(rng, frames, if door { step } else { middle }, within, 0),
+                    farm::Near::Prop {
+                        frames,
+                        within,
+                        door,
+                    } => {
+                        _ = map.place_near(rng, frames, if door { step } else { middle }, within, 0)
+                    }
                 }
             }
         }
-        for _ in 0..f.fields + if f.more_fields > 0 { rng.below(f.more_fields) } else { 0 } {
+        for _ in 0..f.fields
+            + if f.more_fields > 0 {
+                rng.below(f.more_fields)
+            } else {
+                0
+            }
+        {
             map.field(rng);
         }
         map.roadside(rng, road);
@@ -391,7 +505,10 @@ impl Map {
         map.keep_barrels_apart();
         map.spawn = map.find_spawn();
         map.home = match stood.first() {
-            Some(&(b, (x, y, bw, bh))) => [(x + b.door.min(bw - 1)) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
+            Some(&(b, (x, y, bw, bh))) => [
+                (x + b.door.min(bw - 1)) as f32 * TILE + TILE / 2.0,
+                (y + bh) as f32 * TILE + TILE / 2.0,
+            ],
             None => map.spawn,
         };
         map
@@ -447,12 +564,24 @@ impl Map {
             let mut tx = tx0;
             while tx <= tx1 {
                 if self.solid_at(tx * TILE + 1.0, ty * TILE + 1.0) {
-                    let i = if tx < 0.0 || ty < 0.0 { usize::MAX } else { (ty as usize) * self.w + tx as usize };
-                    let filled = if FILLED { self.shape.get(i).copied().unwrap_or([WHOLE, NO_BOX]) } else { [WHOLE, NO_BOX] };
+                    let i = if tx < 0.0 || ty < 0.0 {
+                        usize::MAX
+                    } else {
+                        (ty as usize) * self.w + tx as usize
+                    };
+                    let filled = if FILLED {
+                        self.shape.get(i).copied().unwrap_or([WHOLE, NO_BOX])
+                    } else {
+                        [WHOLE, NO_BOX]
+                    };
                     let (cx, cy) = (tx * TILE, ty * TILE);
                     let overlaps = |b: [u8; 4]| {
                         let [bx0, by0, bx1, by1] = b.map(f32::from);
-                        bx1 > bx0 && x0 < cx + bx1 && x1 > cx + bx0 && y0 < cy + by1 && y1 > cy + by0
+                        bx1 > bx0
+                            && x0 < cx + bx1
+                            && x1 > cx + bx0
+                            && y0 < cy + by1
+                            && y1 > cy + by0
                     };
                     if filled.into_iter().any(overlaps) {
                         return true;
@@ -475,7 +604,12 @@ impl Map {
         self.slide_as::<false>(pos, delta, half)
     }
 
-    fn slide_as<const FILLED: bool>(&self, pos: [f32; 2], delta: [f32; 2], half: [f32; 2]) -> [f32; 2] {
+    fn slide_as<const FILLED: bool>(
+        &self,
+        pos: [f32; 2],
+        delta: [f32; 2],
+        half: [f32; 2],
+    ) -> [f32; 2] {
         let mut p = pos;
         if !self.hits_as::<FILLED>(p[0] + delta[0], p[1], half) {
             p[0] += delta[0];
@@ -515,7 +649,12 @@ impl Map {
     /// Dial's algorithm: cells a step away queue for the next distance, and those further through something to
     /// chew in a ring of buckets as long as the dearest step. Queued cells carry x in the low half and y in the
     /// high, which saves a division a cell on the device.
-    fn steps<const CHEW: bool>(&self, targets: &[[f32; 2]], dist: &mut Vec<u16>, steps: &mut Steps) {
+    fn steps<const CHEW: bool>(
+        &self,
+        targets: &[[f32; 2]],
+        dist: &mut Vec<u16>,
+        steps: &mut Steps,
+    ) {
         let (w, h) = (self.w, self.h);
         dist.clear();
         dist.resize(w * h, u16::MAX);
@@ -542,7 +681,12 @@ impl Map {
                 if dist[y * w + x] != d {
                     continue;
                 }
-                for (ok, nx, ny) in [(x > 0, x.wrapping_sub(1), y), (x + 1 < w, x + 1, y), (y > 0, x, y.wrapping_sub(1)), (y + 1 < h, x, y + 1)] {
+                for (ok, nx, ny) in [
+                    (x > 0, x.wrapping_sub(1), y),
+                    (x + 1 < w, x + 1, y),
+                    (y > 0, x, y.wrapping_sub(1)),
+                    (y + 1 < h, x, y + 1),
+                ] {
                     let j = ny.wrapping_mul(w).wrapping_add(nx);
                     let step = match ok {
                         false => continue,
@@ -552,7 +696,11 @@ impl Map {
                     if step > 0 && d + step < dist[j] {
                         dist[j] = d + step;
                         let c = (ny << 16 | nx) as u32;
-                        if step == 1 { next.push(c) } else { ring[dist[j] as usize % ring.len()].push(c) }
+                        if step == 1 {
+                            next.push(c)
+                        } else {
+                            ring[dist[j] as usize % ring.len()].push(c)
+                        }
                     }
                 }
             }
@@ -565,12 +713,28 @@ impl Map {
     /// Direction from `pos` toward the neighboring cell nearest the flow target, or None off the field.
     pub fn downhill(&self, flow: &[u16], pos: [f32; 2]) -> Option<[f32; 2]> {
         let (x, y) = ((pos[0] / TILE) as i32, (pos[1] / TILE) as i32);
-        let inside = |x: i32, y: i32| x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h;
-        let at = |x: i32, y: i32| if inside(x, y) { flow[self.i(x as usize, y as usize)] } else { u16::MAX };
+        let inside =
+            |x: i32, y: i32| x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h;
+        let at = |x: i32, y: i32| {
+            if inside(x, y) {
+                flow[self.i(x as usize, y as usize)]
+            } else {
+                u16::MAX
+            }
+        };
         let open = |x: i32, y: i32| inside(x, y) && !self.solid[self.i(x as usize, y as usize)];
         let here = at(x, y);
         let mut best = (here, None);
-        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+        for (dx, dy) in [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+            (1, 1),
+        ] {
             // Diagonals only when both sides are open, so nobody cuts a corner into a wall.
             if dx != 0 && dy != 0 && !(open(x + dx, y) && open(x, y + dy)) {
                 continue;
@@ -581,7 +745,10 @@ impl Map {
             }
         }
         let (cx, cy) = best.1?;
-        let to = [(cx as f32 + 0.5) * TILE - pos[0], (cy as f32 + 0.5) * TILE - pos[1]];
+        let to = [
+            (cx as f32 + 0.5) * TILE - pos[0],
+            (cy as f32 + 0.5) * TILE - pos[1],
+        ];
         let l = (to[0] * to[0] + to[1] * to[1]).sqrt().max(1e-4);
         Some([to[0] / l, to[1] / l])
     }
@@ -592,7 +759,10 @@ impl Map {
             return None;
         }
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
-        (tx < self.w && ty < self.h).then(|| self.owner[self.i(tx, ty)]).filter(|&o| o != NO_OWNER).map(|o| o as usize)
+        (tx < self.w && ty < self.h)
+            .then(|| self.owner[self.i(tx, ty)])
+            .filter(|&o| o != NO_OWNER)
+            .map(|o| o as usize)
     }
 
     /// Breakable props with blocked cells within `radius` of `c`, by their place in `props`.
@@ -602,7 +772,12 @@ impl Map {
             let d = [(c[0] - c[0].clamp(x, x + w)), (c[1] - c[1].clamp(y, y + h))];
             d[0] * d[0] + d[1] * d[1] < radius * radius
         };
-        self.props.iter().enumerate().filter(|(_, p)| p.full > 0.0 && near(p)).map(|(i, _)| i).collect()
+        self.props
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.full > 0.0 && near(p))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Takes `damage` off a breakable prop and flashes it; it breaks in `crumble`.
@@ -619,7 +794,10 @@ impl Map {
         for p in &mut self.props {
             p.flash = (p.flash - dt).max(0.0);
         }
-        let i = self.props.iter().position(|p| p.full > 0.0 && p.hp <= 0.0)?;
+        let i = self
+            .props
+            .iter()
+            .position(|p| p.full > 0.0 && p.hp <= 0.0)?;
         let p = self.props[i];
         match p.broken {
             Some(frames) => self.props[i] = Prop::new(frames, 0.0, p.x, p.y, p.base, p.depth),
@@ -631,14 +809,23 @@ impl Map {
         for yy in y..y + h {
             for xx in x..x + w {
                 let k = self.i(xx, yy);
-                let filled = self.props.iter().filter_map(|q| Some((q.cover, q.fill(xx, yy)?)));
-                let (cover, shape) = filled.fold((false, None), |(c, s), (qc, b)| (c || qc, Some(s.map_or(b, |s| union(s, b)))));
-                (self.solid[k], self.cover[k], self.shape[k]) = (shape.is_some(), cover, [shape.unwrap_or(WHOLE), NO_BOX]);
+                let filled = self
+                    .props
+                    .iter()
+                    .filter_map(|q| Some((q.cover, q.fill(xx, yy)?)));
+                let (cover, shape) = filled.fold((false, None), |(c, s), (qc, b)| {
+                    (c || qc, Some(s.map_or(b, |s| union(s, b))))
+                });
+                (self.solid[k], self.cover[k], self.shape[k]) =
+                    (shape.is_some(), cover, [shape.unwrap_or(WHOLE), NO_BOX]);
             }
         }
         self.join_fences();
         self.index_breakables();
-        Some([p.x + p.frames[0].w() / 2.0, p.base - (h as f32 * TILE) / 2.0])
+        Some([
+            p.x + p.frames[0].w() / 2.0,
+            p.base - (h as f32 * TILE) / 2.0,
+        ])
     }
 
     /// Notes which breakable prop blocks each cell, the last one placed where they overlap, and what each cell
@@ -683,11 +870,25 @@ impl Map {
     /// else stays as drawn.
     fn join_fences(&mut self) {
         let mut joins = Vec::new();
-        for (k, p) in self.props.iter().enumerate().filter(|(_, p)| matches!(p.frames[0].stand(), Some(art::Stand::Turned { .. }))) {
+        for (k, p) in self
+            .props
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| matches!(p.frames[0].stand(), Some(art::Stand::Turned { .. })))
+        {
             let [x0, _, x1, y1] = p.area;
             let (tx, ty) = ((x0 / TILE) as usize, (y1 / TILE) as usize);
-            let fence_below = || self.props.iter().any(|q| q.blocks(tx, ty) && (q.fence || is_fence(q.frames[0])));
-            if y1 % TILE != 0.0 || tx >= self.w || ty >= self.h || !self.solid[self.i(tx, ty)] || !fence_below() {
+            let fence_below = || {
+                self.props
+                    .iter()
+                    .any(|q| q.blocks(tx, ty) && (q.fence || is_fence(q.frames[0])))
+            };
+            if y1 % TILE != 0.0
+                || tx >= self.w
+                || ty >= self.h
+                || !self.solid[self.i(tx, ty)]
+                || !fence_below()
+            {
                 continue;
             }
             let i = self.i(tx, ty);
@@ -696,7 +897,11 @@ impl Map {
         }
         for (k, i, b) in joins {
             self.props[k].reach = b[3] as f32;
-            self.shape[i][1] = if self.shape[i][1][2] > self.shape[i][1][0] { union(self.shape[i][1], b) } else { b };
+            self.shape[i][1] = if self.shape[i][1][2] > self.shape[i][1][0] {
+                union(self.shape[i][1], b)
+            } else {
+                b
+            };
         }
     }
 
@@ -714,7 +919,8 @@ impl Map {
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
         if tx < self.w && ty < self.h {
             let i = self.i(tx, ty);
-            (self.solid[i], self.cover[i], self.cost[i], self.shape[i]) = (true, true, 0, [WHOLE, NO_BOX]);
+            (self.solid[i], self.cover[i], self.cost[i], self.shape[i]) =
+                (true, true, 0, [WHOLE, NO_BOX]);
         }
     }
 
@@ -727,14 +933,26 @@ impl Map {
     /// Plants the ground `code`'s crop on every cell within `reach` tiles of `at`, as a field of north-south rows
     /// with a lane through `at` and every seventh column and ninth row left bare, so it reads as planted.
     pub(super) fn plant(&mut self, code: u8, at: [usize; 2], reach: usize) {
-        let Some(g) = ground::ground().iter().find(|g| g.code == code) else { return };
-        let Some((top, middle, bottom)) = g.crop else { return };
+        let Some(g) = ground::ground().iter().find(|g| g.code == code) else {
+            return;
+        };
+        let Some((top, middle, bottom)) = g.crop else {
+            return;
+        };
         let ([ax, ay], [w, h]) = (at, [self.w, self.h]);
         let sown = move |x: usize, y: usize| {
             let (dx, dy) = (x.abs_diff(ax), y.abs_diff(ay));
-            x < w && y < h && dx * dx + dy * dy <= reach * reach && dx != 0 && !x.is_multiple_of(7) && !y.is_multiple_of(9)
+            x < w
+                && y < h
+                && dx * dx + dy * dy <= reach * reach
+                && dx != 0
+                && !x.is_multiple_of(7)
+                && !y.is_multiple_of(9)
         };
-        let cells: Vec<[usize; 2]> = (0..self.h).flat_map(|y| (0..self.w).map(move |x| [x, y])).filter(|&[x, y]| sown(x, y)).collect();
+        let cells: Vec<[usize; 2]> = (0..self.h)
+            .flat_map(|y| (0..self.w).map(move |x| [x, y]))
+            .filter(|&[x, y]| sown(x, y))
+            .collect();
         for [x, y] in cells {
             let (up, down) = (y > 0 && sown(x, y - 1), sown(x, y + 1));
             let i = self.i(x, y);
@@ -752,14 +970,23 @@ impl Map {
     /// Lays a crop on one cell: its piece on the map, and its piece and sway in 3D; returns what was there.
     pub fn set_crop(&mut self, x: usize, y: usize, crop: CellCrop) -> CellCrop {
         let i = self.i(x, y);
-        (std::mem::replace(&mut self.overlay[i], crop.0), std::mem::replace(&mut self.standing[i], crop.1))
+        (
+            std::mem::replace(&mut self.overlay[i], crop.0),
+            std::mem::replace(&mut self.standing[i], crop.1),
+        )
     }
 
     fn free(&self, x: usize, y: usize, w: usize, h: usize, margin: usize) -> bool {
-        if x < margin + 1 || y < margin + 1 || x + w + margin + 1 > self.w || y + h + margin + 1 > self.h {
+        if x < margin + 1
+            || y < margin + 1
+            || x + w + margin + 1 > self.w
+            || y + h + margin + 1 > self.h
+        {
             return false;
         }
-        (y - margin..y + h + margin).all(|yy| (x - margin..x + w + margin).all(|xx| self.cells[self.i(xx, yy)] == Cell::Open))
+        (y - margin..y + h + margin).all(|yy| {
+            (x - margin..x + w + margin).all(|xx| self.cells[self.i(xx, yy)] == Cell::Open)
+        })
     }
 
     fn claim(&mut self, x: usize, y: usize, w: usize, h: usize, as_cell: Cell) {
@@ -777,16 +1004,36 @@ impl Map {
     }
 
     /// Adds a prop as `prop` does, standing in the way of shots as `tough` says.
-    fn prop_as(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize, tough: Toughness) -> (usize, usize) {
+    fn prop_as(
+        &mut self,
+        frames: &'static [Art],
+        fps: f32,
+        x: usize,
+        y: usize,
+        open_rows: usize,
+        tough: Toughness,
+    ) -> (usize, usize) {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         let (px, py) = (x as f32 * TILE, y as f32 * TILE);
         let stand = frames[0].stand();
         // Drawn from above, the whole picture stands in 3D, so it all blocks. Upright, walk-through rows open from the
         // top, never all of it, and the 3D view extrudes it as deep as what is left unless its stand says.
-        let from_above = matches!(stand, Some(art::Stand::Slab { .. } | art::Stand::Carve { .. } | art::Stand::Turned { .. }));
+        let from_above = matches!(
+            stand,
+            Some(art::Stand::Slab { .. } | art::Stand::Carve { .. } | art::Stand::Turned { .. })
+        );
         let [ox0, oy0, ox1, oy1] = opaque_bounds(frames[0]);
-        let open_px = if from_above { 0.0 } else { open_rows as f32 * TILE };
-        let mut area = [px + ox0, (py + oy0).max(py + open_px).min(py + oy1 - 1.0), px + ox1, py + oy1];
+        let open_px = if from_above {
+            0.0
+        } else {
+            open_rows as f32 * TILE
+        };
+        let mut area = [
+            px + ox0,
+            (py + oy0).max(py + open_px).min(py + oy1 - 1.0),
+            px + ox1,
+            py + oy1,
+        ];
         let depth = match stand {
             None if tw * th >= 4 => (area[3] - area[1]).max(8.0),
             _ => thickness(frames[0], tw, th, open_rows),
@@ -799,14 +1046,31 @@ impl Map {
         }
         let (left, top) = ((area[0] / TILE) as usize, (area[1] / TILE) as usize);
         let (right, bottom) = (tiles(area[2]).min(self.w), tiles(area[3]).min(self.h));
-        let cells = [left, top, right.saturating_sub(left), bottom.saturating_sub(top)];
+        let cells = [
+            left,
+            top,
+            right.saturating_sub(left),
+            bottom.saturating_sub(top),
+        ];
         let hp = tough.hp.clamp(0.0, MAX_HP);
-        let prop = Prop { hp, full: hp, broken: tough.broken, cells, area, cover: tough.cover, ..Prop::new(frames, fps, px, py, py + frames[0].h(), depth) };
+        let prop = Prop {
+            hp,
+            full: hp,
+            broken: tough.broken,
+            cells,
+            area,
+            cover: tough.cover,
+            ..Prop::new(frames, fps, px, py, py + frames[0].h(), depth)
+        };
         for yy in top..bottom {
             for xx in left..right {
                 let Some(b) = prop.fill(xx, yy) else { continue };
                 let i = self.i(xx, yy);
-                self.shape[i][0] = if self.solid[i] { union(self.shape[i][0], b) } else { b };
+                self.shape[i][0] = if self.solid[i] {
+                    union(self.shape[i][0], b)
+                } else {
+                    b
+                };
                 self.solid[i] = true;
                 self.cover[i] |= tough.cover;
             }
@@ -817,7 +1081,14 @@ impl Map {
     }
 
     /// Places a prop at a free spot within `radius` tiles of `at`; returns its tile rect.
-    fn place_near(&mut self, rng: &mut Rng, frames: &'static [Art], at: [usize; 2], radius: usize, margin: usize) -> Option<(usize, usize, usize, usize)> {
+    fn place_near(
+        &mut self,
+        rng: &mut Rng,
+        frames: &'static [Art],
+        at: [usize; 2],
+        radius: usize,
+        margin: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         for _ in 0..300 {
             let x = (at[0] + rng.below(2 * radius + 1)).saturating_sub(radius);
@@ -839,7 +1110,9 @@ impl Map {
     fn border(&mut self) {
         let (w, h) = (self.w, self.h);
         let border = &farm::farm().border;
-        let ring = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((1..h - 1).flat_map(|y| [(0, y), (w - 1, y)]));
+        let ring = (0..w)
+            .flat_map(|x| [(x, 0), (x, h - 1)])
+            .chain((1..h - 1).flat_map(|y| [(0, y), (w - 1, y)]));
         for (n, (x, y)) in ring.enumerate() {
             self.prop(&border[n % border.len()][..1], 0.0, x, y);
         }
@@ -876,7 +1149,9 @@ impl Map {
                     let pump = one_of(rng, s.pump);
                     self.prop(pump, 0.0, px, y + th);
                 }
-                if let Some((tx, ty, _, _)) = self.place_near(rng, s.truck, [x + tw / 2, y + th + 3], 4, 0) {
+                if let Some((tx, ty, _, _)) =
+                    self.place_near(rng, s.truck, [x + tw / 2, y + th + 3], 4, 0)
+                {
                     let last = self.props.len() - 1;
                     self.props[last].fps = 3.0;
                     self.drive(s.truck[0], s.driver, tx, ty);
@@ -891,7 +1166,10 @@ impl Map {
     /// Leans the truck's driver on the back of `truck`, placed at tile (x, y), smoking, his feet on its ground line.
     fn drive(&mut self, truck: Art, driver: &'static [Art], x: usize, y: usize) {
         let h = driver[0].h();
-        let (px, py) = (x as f32 * TILE + truck.w() - 2.0, y as f32 * TILE + truck.h() - h);
+        let (px, py) = (
+            x as f32 * TILE + truck.w() - 2.0,
+            y as f32 * TILE + truck.h() - h,
+        );
         self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
         self.driver = Some([px + driver[0].w() / 2.0, py + h]);
     }
@@ -930,7 +1208,11 @@ impl Map {
     fn path_to_road(&mut self, x: usize, y: usize, road: usize) {
         let y = (y + 1).min(self.h - 2);
         let mut steps = vec![(x, y - 1), (x, y)];
-        let (from, to) = if x < road { (x, road - 1) } else { (road + 3, x) };
+        let (from, to) = if x < road {
+            (x, road - 1)
+        } else {
+            (road + 3, x)
+        };
         steps.extend((from..=to).map(|xx| (xx, y)));
         for (xx, yy) in steps {
             let i = self.i(xx, yy);
@@ -941,14 +1223,22 @@ impl Map {
     }
 
     fn autotile_paths(&mut self) {
-        let path_art = ground::ground().iter().find(|g| g.cell == Cell::Path).map_or(&art::PATH[..], |g| g.art);
+        let path_art = ground::ground()
+            .iter()
+            .find(|g| g.cell == Cell::Path)
+            .map_or(&art::PATH[..], |g| g.art);
         for y in 1..self.h - 1 {
             for x in 1..self.w - 1 {
                 if self.cells[self.i(x, y)] != Cell::Path {
                     continue;
                 }
-                let joins = |xx: usize, yy: usize| matches!(self.cells[self.i(xx, yy)], Cell::Path | Cell::Road);
-                let mask = N * joins(x, y - 1) as u8 + E * joins(x + 1, y) as u8 + S * joins(x, y + 1) as u8 + W * joins(x - 1, y) as u8;
+                let joins = |xx: usize, yy: usize| {
+                    matches!(self.cells[self.i(xx, yy)], Cell::Path | Cell::Road)
+                };
+                let mask = N * joins(x, y - 1) as u8
+                    + E * joins(x + 1, y) as u8
+                    + S * joins(x, y + 1) as u8
+                    + W * joins(x - 1, y) as u8;
                 let i = self.i(x, y);
                 self.ground[i] = path_art[mask as usize];
             }
@@ -968,7 +1258,13 @@ impl Map {
         if self.w < fw + 5 || self.h < fh + 5 {
             return;
         }
-        let art_of = |code: u8| ground.iter().find(|g| g.code == code).unwrap_or(&ground[0]).art;
+        let art_of = |code: u8| {
+            ground
+                .iter()
+                .find(|g| g.code == code)
+                .unwrap_or(&ground[0])
+                .art
+        };
         let soil = art_of(rule.soil);
         let total: usize = rule.kinds().map(|(_, w, _)| w).sum();
         for _ in 0..200 {
@@ -978,18 +1274,30 @@ impl Map {
                 continue;
             }
             let (pick, mut upto) = (rng.below(total), 0);
-            let (code, _, grows) = rule.kinds().find(|&(_, w, _)| {
-                upto += w;
-                pick < upto
-            }).unwrap_or((rule.soil, 0, false));
-            let crop = ground.iter().find(|g| grows && g.code == code).and_then(|g| Some((g, g.crop?)));
+            let (code, _, grows) = rule
+                .kinds()
+                .find(|&(_, w, _)| {
+                    upto += w;
+                    pick < upto
+                })
+                .unwrap_or((rule.soil, 0, false));
+            let crop = ground
+                .iter()
+                .find(|g| grows && g.code == code)
+                .and_then(|g| Some((g, g.crop?)));
             let own = art_of(code);
             for yy in y..y + fh {
                 for xx in x..x + fw {
                     let i = self.i(xx, yy);
                     let under = soil[rng.below(soil.len())];
-                    self.ground[i] = if crop.is_none() && code != rule.soil { own[rng.below(own.len())] } else { under };
-                    let Some((g, (top, middle, bottom))) = crop else { continue };
+                    self.ground[i] = if crop.is_none() && code != rule.soil {
+                        own[rng.below(own.len())]
+                    } else {
+                        under
+                    };
+                    let Some((g, (top, middle, bottom))) = crop else {
+                        continue;
+                    };
                     let (flat, pick) = match yy {
                         _ if yy == y => {
                             let k = rng.below(top.len());
@@ -1000,7 +1308,9 @@ impl Map {
                     };
                     let (up, down) = (yy > y, yy + 1 < y + fh);
                     self.overlay[i] = Some(flat);
-                    self.standing[i] = g.standing().map(|p| Stalk::of(p, pick, up, down, g.tall, g.sway));
+                    self.standing[i] = g
+                        .standing()
+                        .map(|p| Stalk::of(p, pick, up, down, g.tall, g.sway));
                 }
             }
             self.claim(x, y, fw, fh, Cell::Taken);
@@ -1019,15 +1329,30 @@ impl Map {
     /// A fence around the rect, with a two-tile gate in the bottom.
     fn fence(&mut self, rng: &mut Rng, style: &Fence, x: usize, y: usize, w: usize, h: usize) {
         let gate = x + 1 + rng.below(w - 3);
-        self.fence_gated(style, [x, y, w, h], Some(gate), Toughness::fence(), |n| rng.below(n));
+        self.fence_gated(style, [x, y, w, h], Some(gate), Toughness::fence(), |n| {
+            rng.below(n)
+        });
     }
 
     /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any, every piece as
     /// `tough`; `pick` chooses among a style's gate posts.
-    fn fence_gated(&mut self, style: &Fence, [x, y, w, h]: [usize; 4], gate: Option<usize>, tough: Toughness, mut pick: impl FnMut(usize) -> usize) {
+    fn fence_gated(
+        &mut self,
+        style: &Fence,
+        [x, y, w, h]: [usize; 4],
+        gate: Option<usize>,
+        tough: Toughness,
+        mut pick: impl FnMut(usize) -> usize,
+    ) {
         let first = self.props.len();
         for xx in x..x + w {
-            let k = if xx == x { 0 } else if xx == x + w - 1 { 2 } else { 1 };
+            let k = if xx == x {
+                0
+            } else if xx == x + w - 1 {
+                2
+            } else {
+                1
+            };
             self.prop_as(&style.top[k..k + 1], 0.0, xx, y, 0, tough);
             let post = gate.is_some_and(|g| xx + 1 == g || xx == g + 2) && k == 1;
             match style.gate_post {
@@ -1057,7 +1382,11 @@ impl Map {
     fn roadside(&mut self, rng: &mut Rng, road: usize) {
         let r = &farm::farm().road;
         for _ in 0..r.signs {
-            let x = if rng.below(2) == 0 { road - 1 } else { road + 3 };
+            let x = if rng.below(2) == 0 {
+                road - 1
+            } else {
+                road + 3
+            };
             let y = 2 + rng.below(self.h - 4);
             if self.cells[self.i(x, y)] == Cell::Open {
                 let set = r.sign[rng.below(r.sign.len())];
@@ -1119,7 +1448,11 @@ impl Map {
         }
         let patch = ground_art(f.patch);
         for _ in 0..grass {
-            let (cx, cy, r) = (rng.below(self.w) as i32, rng.below(self.h) as i32, rng.below(2) as i32);
+            let (cx, cy, r) = (
+                rng.below(self.w) as i32,
+                rng.below(self.h) as i32,
+                rng.below(2) as i32,
+            );
             for y in (cy - r).max(1)..(cy + r + 1).min(self.h as i32 - 1) {
                 for x in (cx - r).max(1)..(cx + r + 1).min(self.w as i32 - 1) {
                     let i = self.i(x as usize, y as usize);
@@ -1134,7 +1467,11 @@ impl Map {
     /// The open tile nearest the middle with a clear tile all around it.
     fn find_spawn(&self) -> [f32; 2] {
         let (cx, cy) = (self.w as i32 / 2, self.h as i32 / 2);
-        let clear = |x: i32, y: i32| (-1..=1).all(|dy| (-1..=1).all(|dx| !self.solid[self.i((x + dx) as usize, (y + dy) as usize)]));
+        let clear = |x: i32, y: i32| {
+            (-1..=1).all(|dy| {
+                (-1..=1).all(|dx| !self.solid[self.i((x + dx) as usize, (y + dy) as usize)])
+            })
+        };
         for r in 0..self.w.max(self.h) as i32 {
             for y in (cy - r).max(2)..=(cy + r).min(self.h as i32 - 3) {
                 for x in (cx - r).max(2)..=(cx + r).min(self.w as i32 - 3) {
@@ -1157,7 +1494,14 @@ impl Map {
         let mut way = vec![[x, y]];
         while dist[self.i(x, y)] > 0 {
             let d = dist[self.i(x, y)];
-            let next = [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)].into_iter().find(|&(nx, ny)| nx < self.w && ny < self.h && dist[self.i(nx, ny)] == d - 1);
+            let next = [
+                (x.wrapping_sub(1), y),
+                (x + 1, y),
+                (x, y.wrapping_sub(1)),
+                (x, y + 1),
+            ]
+            .into_iter()
+            .find(|&(nx, ny)| nx < self.w && ny < self.h && dist[self.i(nx, ny)] == d - 1);
             let Some((nx, ny)) = next else { break };
             (x, y) = (nx, ny);
             way.push([x, y]);
@@ -1173,14 +1517,21 @@ mod tests {
 
     #[test]
     fn a_flow_from_two_players_leads_each_cell_to_the_nearer() {
-        let map = Map::from_source(&MapSource::new("Open", [40, 40]), &mut Rng::new(1), false).unwrap();
+        let map =
+            Map::from_source(&MapSource::new("Open", [40, 40]), &mut Rng::new(1), false).unwrap();
         let (a, b) = ([5.5 * TILE, 20.5 * TILE], [30.5 * TILE, 20.5 * TILE]);
         let (mut dist, mut steps) = (Vec::new(), Steps::default());
         map.flow_from(&[a, b], &mut dist, &mut steps);
         let at = |x: usize| dist[map.i(x, 20)];
         assert_eq!([at(5), at(30), at(10), at(25), at(17)], [0, 0, 5, 5, 12]);
-        assert!(map.downhill(&dist, [12.5 * TILE, 20.5 * TILE]).unwrap()[0] < 0.0, "left of the middle goes to the left player");
-        assert!(map.downhill(&dist, [23.5 * TILE, 20.5 * TILE]).unwrap()[0] > 0.0, "right of it to the right one");
+        assert!(
+            map.downhill(&dist, [12.5 * TILE, 20.5 * TILE]).unwrap()[0] < 0.0,
+            "left of the middle goes to the left player"
+        );
+        assert!(
+            map.downhill(&dist, [23.5 * TILE, 20.5 * TILE]).unwrap()[0] > 0.0,
+            "right of it to the right one"
+        );
         let mut one = Vec::new();
         map.flow_into(a, &mut one, &mut steps);
         map.flow_from(&[a], &mut dist, &mut steps);
@@ -1190,37 +1541,88 @@ mod tests {
     /// Everything a generated farm lays down, hashed, so a change to how farm.txt is read can't move a thing.
     fn layout_hash(map: &Map) -> u64 {
         use std::fmt::Write;
-        let mut s = format!("{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}", map.ground, map.overlay, map.standing, map.solid, map.shape, map.cover, map.cost, map.cells);
+        let mut s = format!(
+            "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+            map.ground,
+            map.overlay,
+            map.standing,
+            map.solid,
+            map.shape,
+            map.cover,
+            map.cost,
+            map.cells
+        );
         for p in &map.props {
-            write!(s, "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}", p.frames, p.fps, p.x, p.y, p.base, p.depth, p.hp, p.cells, p.area, p.reach, p.cover).unwrap();
+            write!(
+                s,
+                "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+                p.frames, p.fps, p.x, p.y, p.base, p.depth, p.hp, p.cells, p.area, p.reach, p.cover
+            )
+            .unwrap();
         }
-        write!(s, "{:?}{:?}{:?}{:?}{:?}", map.decals, map.barrels, map.barrel_hp, map.spawn, map.home).unwrap();
-        s.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+        write!(
+            s,
+            "{:?}{:?}{:?}{:?}{:?}",
+            map.decals, map.barrels, map.barrel_hp, map.spawn, map.home
+        )
+        .unwrap();
+        s.bytes().fold(0xcbf29ce484222325, |h, b| {
+            (h ^ b as u64).wrapping_mul(0x100000001b3)
+        })
     }
 
     #[test]
     fn the_shipped_farm_lays_the_same_farm_from_the_same_seed() {
         let _lock = art::test_lock();
-        let hashes: Vec<u64> = [(1, 72, 54), (7, 40, 30), (11, 72, 54), (12345, 96, 64)].iter().map(|&(seed, w, h)| layout_hash(&Map::generate(&mut Rng::new(seed), w, h))).collect();
-        assert_eq!(hashes, [0x216474493fffbe8, 0x624ac506f4a60258, 0xea8adc850f90fb5a, 0x662b956b01708bac], "{hashes:#x?}");
+        let hashes: Vec<u64> = [(1, 72, 54), (7, 40, 30), (11, 72, 54), (12345, 96, 64)]
+            .iter()
+            .map(|&(seed, w, h)| layout_hash(&Map::generate(&mut Rng::new(seed), w, h)))
+            .collect();
+        assert_eq!(
+            hashes,
+            [
+                0x216474493fffbe8,
+                0x624ac506f4a60258,
+                0xea8adc850f90fb5a,
+                0x662b956b01708bac
+            ],
+            "{hashes:#x?}"
+        );
     }
 
     #[test]
     fn a_field_grows_the_crop_its_code_names() {
         let built_in = |f: &str| crate::harvest::built_in_table(f).unwrap();
-        let ground = ground::parse(&format!("{}\n[k]\nname Cane\nart SOIL\ncell field\ncrop SIGN BARRIER TOMBSTONE\ntall 2\n", built_in("ground.txt"))).unwrap();
-        let rule = farm::parse(&format!("{}\n[fields]\nplain\ncrops k 1\nfenced 0", built_in("farm.txt"))).unwrap().field;
+        let ground = ground::parse(&format!(
+            "{}\n[k]\nname Cane\nart SOIL\ncell field\ncrop SIGN BARRIER TOMBSTONE\ntall 2\n",
+            built_in("ground.txt")
+        ))
+        .unwrap();
+        let rule = farm::parse(&format!(
+            "{}\n[fields]\nplain\ncrops k 1\nfenced 0",
+            built_in("farm.txt")
+        ))
+        .unwrap()
+        .field;
         let mut map = Map::blank(40, 30);
         map.field_of(&mut Rng::new(5), &rule, &ground);
-        let grown: Vec<usize> = (0..map.w * map.h).filter(|&i| map.overlay[i].is_some()).collect();
+        let grown: Vec<usize> = (0..map.w * map.h)
+            .filter(|&i| map.overlay[i].is_some())
+            .collect();
         assert!(grown.len() >= 5 * 4, "a whole field");
         for &i in &grown {
             let o = map.overlay[i].unwrap();
-            assert!(art::SIGN.contains(&o) || o == art::BARRIER || o == art::TOMBSTONE, "{o:?}");
+            assert!(
+                art::SIGN.contains(&o) || o == art::BARRIER || o == art::TOMBSTONE,
+                "{o:?}"
+            );
             assert!(art::SOIL.contains(&map.ground[i]));
             assert_eq!(map.standing[i].map(|s| s.tall), Some(2));
         }
-        assert!(grown.iter().any(|&i| map.overlay[i] == Some(art::BARRIER)), "rows between its ends");
+        assert!(
+            grown.iter().any(|&i| map.overlay[i] == Some(art::BARRIER)),
+            "rows between its ends"
+        );
         assert!(map.props.is_empty(), "no fence, and no scarecrow in a crop");
     }
 
@@ -1231,9 +1633,21 @@ mod tests {
             let [x, y] = map.spawn;
             assert!(!map.hits(x, y, [6.0, 6.0]), "seed {seed}: spawn blocked");
             let has = |a: Art| map.props.iter().any(|p| p.frames[0] == a);
-            assert!(has(art::HOUSE) || has(art::BARN_RED) || has(art::BARN_GREEN), "seed {seed}: no farmstead");
-            assert!(!map.hits(map.home[0], map.home[1], [4.0, 4.0]), "seed {seed}: the front step is blocked");
-            assert!(map.reach(map.home)[map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize)] < u16::MAX, "seed {seed}: no way home");
+            assert!(
+                has(art::HOUSE) || has(art::BARN_RED) || has(art::BARN_GREEN),
+                "seed {seed}: no farmstead"
+            );
+            assert!(
+                !map.hits(map.home[0], map.home[1], [4.0, 4.0]),
+                "seed {seed}: the front step is blocked"
+            );
+            assert!(
+                map.reach(map.home)[map.i(
+                    (map.spawn[0] / TILE) as usize,
+                    (map.spawn[1] / TILE) as usize
+                )] < u16::MAX,
+                "seed {seed}: no way home"
+            );
         }
     }
 
@@ -1252,10 +1666,27 @@ mod tests {
             assert!(leaning, "seed {seed}: a place to cash in with no driver");
             drivers += 1;
             let from = map.reach([x, y + TILE]);
-            let spawn = map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize);
-            let near = (0..16).map(|k| k as f32 / 16.0 * std::f32::consts::TAU).map(|a| [x + fm::cos(a) * (t.driver_reach - 2.0), y + fm::sin(a) * (t.driver_reach - 2.0)]);
-            assert!(near.into_iter().any(|p| !map.hits(p[0], p[1], t.player_half())), "seed {seed}: nowhere to stand by the driver");
-            assert!(from[spawn] < u16::MAX, "seed {seed}: no way from the spawn to the driver");
+            let spawn = map.i(
+                (map.spawn[0] / TILE) as usize,
+                (map.spawn[1] / TILE) as usize,
+            );
+            let near = (0..16)
+                .map(|k| k as f32 / 16.0 * std::f32::consts::TAU)
+                .map(|a| {
+                    [
+                        x + fm::cos(a) * (t.driver_reach - 2.0),
+                        y + fm::sin(a) * (t.driver_reach - 2.0),
+                    ]
+                });
+            assert!(
+                near.into_iter()
+                    .any(|p| !map.hits(p[0], p[1], t.player_half())),
+                "seed {seed}: nowhere to stand by the driver"
+            );
+            assert!(
+                from[spawn] < u16::MAX,
+                "seed {seed}: no way from the spawn to the driver"
+            );
         }
         assert!(drivers > 30, "most farms have a gas station: {drivers}");
     }
@@ -1289,13 +1720,21 @@ mod tests {
         let (mut steps, mut reused) = (Steps::default(), Vec::new());
         for seed in 1..6 {
             let map = Map::generate(&mut Rng::new(seed), 72, 54);
-            let start = map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize);
+            let start = map.i(
+                (map.spawn[0] / TILE) as usize,
+                (map.spawn[1] / TILE) as usize,
+            );
             let mut dist = vec![u16::MAX; map.w * map.h];
             dist[start] = 0;
             let mut heap = std::collections::BinaryHeap::from([std::cmp::Reverse((0u16, start))]);
             while let Some(std::cmp::Reverse((d, i))) = heap.pop() {
                 let (x, y) = (i % map.w, i / map.w);
-                for (ok, j) in [(x > 0, i.wrapping_sub(1)), (x + 1 < map.w, i + 1), (y > 0, i.wrapping_sub(map.w)), (y + 1 < map.h, i + map.w)] {
+                for (ok, j) in [
+                    (x > 0, i.wrapping_sub(1)),
+                    (x + 1 < map.w, i + 1),
+                    (y > 0, i.wrapping_sub(map.w)),
+                    (y + 1 < map.h, i + map.w),
+                ] {
                     let step = if ok { map.cost[j] as u16 } else { 0 };
                     if d == dist[i] && step > 0 && d + step < dist[j] {
                         dist[j] = d + step;
@@ -1307,9 +1746,18 @@ mod tests {
             assert_eq!(flow, dist, "seed {seed}");
             map.flow_into(map.home, &mut reused, &mut steps);
             map.flow_into(map.spawn, &mut reused, &mut steps);
-            assert_eq!(reused, dist, "seed {seed}: and the same in room left from other fields");
-            assert!(map.cost.iter().any(|c| *c > 1), "seed {seed}: fences to chew through");
-            assert!(flow.iter().zip(map.reach(map.spawn)).all(|(f, r)| *f <= r), "seed {seed}: chewing is never further");
+            assert_eq!(
+                reused, dist,
+                "seed {seed}: and the same in room left from other fields"
+            );
+            assert!(
+                map.cost.iter().any(|c| *c > 1),
+                "seed {seed}: fences to chew through"
+            );
+            assert!(
+                flow.iter().zip(map.reach(map.spawn)).all(|(f, r)| *f <= r),
+                "seed {seed}: chewing is never further"
+            );
         }
     }
 
@@ -1320,7 +1768,10 @@ mod tests {
         map.prop(&art::WRECK_V[..1], 0.0, 2, 2);
         let [x0, y0, x1, y1] = opaque_bounds(a).map(|v| v + 2.0 * TILE);
         let half = [4.0, 3.0];
-        assert!(!map.hits(x1 + 4.5, (y0 + y1) / 2.0, half), "beside it, in the tile its last pixels reach into");
+        assert!(
+            !map.hits(x1 + 4.5, (y0 + y1) / 2.0, half),
+            "beside it, in the tile its last pixels reach into"
+        );
         assert!(map.hits((x0 + x1) / 2.0, (y0 + y1) / 2.0, half));
         assert!(!map.hits((x0 + x1) / 2.0, y1 + 3.5, half), "just below it");
         assert!(map.hits((x0 + x1) / 2.0, y1 + 2.5, half));
@@ -1354,7 +1805,10 @@ mod tests {
         let mut map = Map::blank(10, 10);
         map.prop(&art::PICKET_BOTTOM[..1], 0.0, 2, 2);
         let base = 3.0 * TILE;
-        assert!(!map.hits(2.5 * TILE, base - 2.0 - 3.5, [4.0, 3.0]), "up to the board");
+        assert!(
+            !map.hits(2.5 * TILE, base - 2.0 - 3.5, [4.0, 3.0]),
+            "up to the board"
+        );
         assert!(map.hits(2.5 * TILE, base - 2.0 - 2.5, [4.0, 3.0]));
     }
 
@@ -1365,10 +1819,16 @@ mod tests {
         map.prop(&art::RAIL_BOTTOM[..1], 0.0, 2, 3);
         let side = map.props[0].area;
         let gap = [(side[0] + side[2]) / 2.0, 3.0 * TILE + 6.0];
-        assert!(!map.hits(gap[0], gap[1], [1.0, 1.0]), "the corner's board alone leaves a gap under the side");
+        assert!(
+            !map.hits(gap[0], gap[1], [1.0, 1.0]),
+            "the corner's board alone leaves a gap under the side"
+        );
         map.join_fences();
         assert!(map.hits(gap[0], gap[1], [1.0, 1.0]));
-        assert!(!map.hits(side[2] + 6.0, gap[1], [1.0, 1.0]), "the rest of the corner stays open down to its board");
+        assert!(
+            !map.hits(side[2] + 6.0, gap[1], [1.0, 1.0]),
+            "the rest of the corner stays open down to its board"
+        );
     }
 
     #[test]

@@ -11,7 +11,11 @@ fn main() {
         }
     };
     if config.healthcheck {
-        std::process::exit(if last_harvest_relay::healthcheck(config.port) { 0 } else { 1 });
+        std::process::exit(if last_harvest_relay::healthcheck(config.port) {
+            0
+        } else {
+            1
+        });
     }
     exit_on_signal();
 

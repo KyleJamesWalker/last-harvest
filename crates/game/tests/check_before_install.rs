@@ -7,6 +7,12 @@ fn checking_every_table_reads_none_of_the_games_data() {
         last_harvest_game::check_table(file, text).unwrap_or_else(|e| panic!("{e}"));
     }
     let own = |file| last_harvest_game::built_in_table(file).map(String::from);
-    last_harvest_game::check_tables(own("powerups.txt").as_deref(), own("enemies.txt").as_deref(), own("props.txt").as_deref()).unwrap();
-    last_harvest_game::data::install(last_harvest_game::data::Data::default()).expect("a check read the game's data, so install can't");
+    last_harvest_game::check_tables(
+        own("powerups.txt").as_deref(),
+        own("enemies.txt").as_deref(),
+        own("props.txt").as_deref(),
+    )
+    .unwrap();
+    last_harvest_game::data::install(last_harvest_game::data::Data::default())
+        .expect("a check read the game's data, so install can't");
 }

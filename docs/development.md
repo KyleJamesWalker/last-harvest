@@ -4,7 +4,7 @@ This page covers setup, the build, the tests and the checks a pull request must 
 
 ## Requirements
 
-- Rust 1.94 or later.
+- Rust 1.94.0, pinned in `rust-toolchain.toml`; rustup installs it, with clippy and rustfmt, on the first `cargo` command.
 - The tileset in `assets/private/`. See [Setup](#setup).
 - For the device build: the `aarch64-unknown-linux-gnu` target, [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) and [Zig](https://ziglang.org).
 - For the web builds: the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the version in `Cargo.lock`. The web scripts stop with the install command when the version differs.
@@ -63,11 +63,10 @@ LAST_HARVEST_SPLIT=2 LAST_HARVEST_BOTS=1 LAST_HARVEST_WINDOW=1280x720 LAST_HARVE
 Run these before every commit. CI runs the same checks with `-D warnings`.
 
 ```sh
+cargo fmt --all                          # CI runs cargo fmt --all --check
 cargo clippy --workspace --all-targets   # zero warnings
 cargo test --workspace
 ```
-
-The code is not rustfmt-formatted. Do not run `cargo fmt`.
 
 | Check | When to run it |
 |---|---|

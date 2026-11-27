@@ -80,13 +80,25 @@ pub struct Fade {
 }
 
 impl Fade {
-    pub const OPAQUE: Fade = Fade { alpha: 1.0, fade_in: 0.0, fade_out: 0.0 };
+    pub const OPAQUE: Fade = Fade {
+        alpha: 1.0,
+        fade_in: 0.0,
+        fade_out: 0.0,
+    };
 
     /// The alpha `k` of the way through its play, 0 to 1.
     pub fn at(&self, k: f32) -> f32 {
         let k = k.clamp(0.0, 1.0);
-        let rise = if self.fade_in > 0.0 { (k / self.fade_in).min(1.0) } else { 1.0 };
-        let fall = if self.fade_out > 0.0 { ((1.0 - k) / self.fade_out).min(1.0) } else { 1.0 };
+        let rise = if self.fade_in > 0.0 {
+            (k / self.fade_in).min(1.0)
+        } else {
+            1.0
+        };
+        let fall = if self.fade_out > 0.0 {
+            ((1.0 - k) / self.fade_out).min(1.0)
+        } else {
+            1.0
+        };
         self.alpha * rise * fall
     }
 }
@@ -190,25 +202,52 @@ pub struct Written {
 impl Written {
     /// Whether it sets any of a shot's style, and so flies as particles.
     pub fn is_shot(&self) -> bool {
-        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some() || self.impact.is_some() || self.trail.is_some() || self.core.is_some() || self.sprites.iter().any(Option::is_some)
+        self.color.is_some()
+            || self.length.is_some()
+            || self.size.is_some()
+            || self.sparks.is_some()
+            || self.impact.is_some()
+            || self.trail.is_some()
+            || self.core.is_some()
+            || self.sprites.iter().any(Option::is_some)
     }
 
     /// Its shot style, the rest taken from `base`, with its sprites' frames as `frames` finds them.
-    fn shot(&self, base: Option<Shot>, frames: &dyn Fn(&str) -> Option<&'static [Art]>) -> Option<Shot> {
-        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, trail: 0, core: 5.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE });
+    fn shot(
+        &self,
+        base: Option<Shot>,
+        frames: &dyn Fn(&str) -> Option<&'static [Art]>,
+    ) -> Option<Shot> {
+        let base = base.unwrap_or(Shot {
+            color: [1.0; 3],
+            length: 10.0,
+            size: 1.5,
+            sparks: 6,
+            impact: 4,
+            trail: 0,
+            core: 5.0,
+            sprites: [None; SPRITES.len()],
+            fade: Fade::OPAQUE,
+        });
         self.is_shot().then(|| Shot {
             sprites: std::array::from_fn(|k| match &self.sprites[k] {
                 Some(name) => frames(name),
                 None => base.sprites[k],
             }),
-            color: self.color.map_or(base.color, |c| c.map(|v| v as f32 / 255.0)),
+            color: self
+                .color
+                .map_or(base.color, |c| c.map(|v| v as f32 / 255.0)),
             length: self.length.unwrap_or(base.length),
             size: self.size.unwrap_or(base.size),
             sparks: self.sparks.unwrap_or(base.sparks),
             impact: self.impact.unwrap_or(base.impact),
             trail: self.trail.unwrap_or(base.trail),
             core: self.core.unwrap_or(base.core),
-            fade: if self.fade == Fade::OPAQUE { base.fade } else { self.fade },
+            fade: if self.fade == Fade::OPAQUE {
+                base.fade
+            } else {
+                self.fade
+            },
         })
     }
 }
@@ -217,7 +256,16 @@ impl Written {
 type Extra = Vec<(String, Written)>;
 
 /// The particle colors `[colors]` sets, in order.
-pub const COLORS: [&str; 8] = ["blood", "dark_blood", "dirt", "spark", "ember", "gold", "firefly", "soak"];
+pub const COLORS: [&str; 8] = [
+    "blood",
+    "dark_blood",
+    "dirt",
+    "spark",
+    "ember",
+    "gold",
+    "firefly",
+    "soak",
+];
 
 /// Particle colors by `COLORS`, red, green and blue from 0 to 1.
 pub type Palette = [[f32; 3]; COLORS.len()];
@@ -238,10 +286,23 @@ pub fn parse_colors(text: &str, base: Option<&Palette>) -> Result<Palette, Strin
         if !inside || line.is_empty() {
             continue;
         }
-        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
-        let k = COLORS.iter().position(|c| *c == key).ok_or_else(|| format!("{n}: {key} isn't a color; there's {}", COLORS.join(", ")))?;
-        let v: Vec<f32> = value.split_whitespace().map(|w| w.parse().ok().filter(|v: &f32| (0.0..=1.0).contains(v))).collect::<Option<_>>().unwrap_or_default();
-        let [r, g, b] = v[..] else { return Err(format!("{n}: {key} takes red, green and blue from 0 to 1, such as 0.62 0.08 0.06")) };
+        let (key, value) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(k, v)| (k, v.trim()));
+        let k = COLORS
+            .iter()
+            .position(|c| *c == key)
+            .ok_or_else(|| format!("{n}: {key} isn't a color; there's {}", COLORS.join(", ")))?;
+        let v: Vec<f32> = value
+            .split_whitespace()
+            .map(|w| w.parse().ok().filter(|v: &f32| (0.0..=1.0).contains(v)))
+            .collect::<Option<_>>()
+            .unwrap_or_default();
+        let [r, g, b] = v[..] else {
+            return Err(format!(
+                "{n}: {key} takes red, green and blue from 0 to 1, such as 0.62 0.08 0.06"
+            ));
+        };
         out[k] = [r, g, b];
         seen[k] = true;
     }
@@ -253,14 +314,16 @@ pub fn parse_colors(text: &str, base: Option<&Palette>) -> Result<Palette, Strin
 
 /// The colors in the game's own effects.txt, without reading the game's data.
 pub fn built_in_colors() -> Palette {
-    parse_colors(include_str!("../../effects.txt"), None).unwrap_or_else(|e| panic!("effects.txt:{e}"))
+    parse_colors(include_str!("../../effects.txt"), None)
+        .unwrap_or_else(|e| panic!("effects.txt:{e}"))
 }
 
 /// The particle colors: the game's own, with any `effects.txt` sets over them.
 pub fn colors() -> &'static Palette {
     static C: OnceLock<Palette> = OnceLock::new();
     C.get_or_init(|| {
-        parse_colors(crate::data::effects(), Some(&built_in_colors())).unwrap_or_else(|e| panic!("effects.txt:{e}"))
+        parse_colors(crate::data::effects(), Some(&built_in_colors()))
+            .unwrap_or_else(|e| panic!("effects.txt:{e}"))
     })
 }
 
@@ -269,7 +332,16 @@ pub fn colors() -> &'static Palette {
 /// The game's own effects.txt.
 const BUILT_IN: &str = include_str!("../../effects.txt");
 /// Sections added after mods could replace effects.txt, which a mod's file may leave out.
-const ADDED_LATER: [&str; 8] = ["dog_attack", "spit", "mound", "mound_breaks", "maul", "ground_crack", "drone", "stake"];
+const ADDED_LATER: [&str; 8] = [
+    "dog_attack",
+    "spit",
+    "mound",
+    "mound_breaks",
+    "maul",
+    "ground_crack",
+    "drone",
+    "stake",
+];
 
 pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];
@@ -287,11 +359,36 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, trail: None, core: None, sprites: Default::default(), fade: Fade::OPAQUE };
-            if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
-                return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
+            let fresh = Written {
+                art: String::new(),
+                fps: 10.0,
+                life: 0.2,
+                reach: 1.0,
+                color: None,
+                length: None,
+                size: None,
+                sparks: None,
+                impact: None,
+                trail: None,
+                core: None,
+                sprites: Default::default(),
+                fade: Fade::OPAQUE,
+            };
+            if !name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                || name.is_empty()
+            {
+                return Err(format!(
+                    "{n}: [{name}] isn't a name of lowercase letters, digits and _"
+                ));
             }
-            if out.iter().zip(NAMES).any(|(o, k)| o.is_some() && *k == name) || extra.iter().any(|(k, _)| k == name) {
+            if out
+                .iter()
+                .zip(NAMES)
+                .any(|(o, k)| o.is_some() && *k == name)
+                || extra.iter().any(|(k, _)| k == name)
+            {
                 return Err(format!("{n}: [{name}] appears twice"));
             }
             at = Some(match NAMES.iter().position(|e| *e == name) {
@@ -314,33 +411,100 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             Some(k) => extra.get_mut(k - NAMES.len()).map(|(_, w)| w),
             None => None,
         };
-        let Some(e) = e else { return Err(format!("{n}: a line before any [effect]")) };
-        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
-        let number = || value.parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.0).ok_or_else(|| format!("{n}: {key} is a number above 0"));
+        let Some(e) = e else {
+            return Err(format!("{n}: a line before any [effect]"));
+        };
+        let (key, value) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(k, v)| (k, v.trim()));
+        let number = || {
+            value
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .ok_or_else(|| format!("{n}: {key} is a number above 0"))
+        };
         match key {
-            "art" if !value.is_empty() && value.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') => e.art = value.to_string(),
+            "art"
+                if !value.is_empty()
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') =>
+            {
+                e.art = value.to_string()
+            }
             "art" => return Err(format!("{n}: art is a sprite's name, such as SLASH")),
             "fps" => e.fps = number()?.min(120.0),
             "life" => e.life = number()?,
             "reach" => e.reach = number()?,
-            "alpha" => e.fade.alpha = value.parse().ok().filter(|v| (crate::alpha::MIN..=1.0).contains(v)).ok_or_else(|| format!("{n}: alpha is a number from {} to 1", crate::alpha::MIN))?,
+            "alpha" => {
+                e.fade.alpha = value
+                    .parse()
+                    .ok()
+                    .filter(|v| (crate::alpha::MIN..=1.0).contains(v))
+                    .ok_or_else(|| {
+                        format!("{n}: alpha is a number from {} to 1", crate::alpha::MIN)
+                    })?
+            }
             "fade_in" | "fade_out" => {
-                let v = value.parse().ok().filter(|v| (0.0..=1.0).contains(v)).ok_or_else(|| format!("{n}: {key} is a fraction of its play from 0 to 1"))?;
-                *if key == "fade_in" { &mut e.fade.fade_in } else { &mut e.fade.fade_out } = v;
+                let v = value
+                    .parse()
+                    .ok()
+                    .filter(|v| (0.0..=1.0).contains(v))
+                    .ok_or_else(|| format!("{n}: {key} is a fraction of its play from 0 to 1"))?;
+                *if key == "fade_in" {
+                    &mut e.fade.fade_in
+                } else {
+                    &mut e.fade.fade_out
+                } = v;
             }
             "length" => e.length = Some(number()?.min(MAX_LENGTH)),
             "size" => e.size = Some(number()?.min(MAX_SIZE)),
             "sparks" | "impact" => {
-                let v = value.parse::<u32>().map_err(|_| format!("{n}: {key} is a whole number, 0 or more"))?.min(MAX_SPARKS);
-                *if key == "sparks" { &mut e.sparks } else { &mut e.impact } = Some(v);
+                let v = value
+                    .parse::<u32>()
+                    .map_err(|_| format!("{n}: {key} is a whole number, 0 or more"))?
+                    .min(MAX_SPARKS);
+                *if key == "sparks" {
+                    &mut e.sparks
+                } else {
+                    &mut e.impact
+                } = Some(v);
             }
-            "trail" => e.trail = Some(value.parse::<u32>().map_err(|_| format!("{n}: trail is a whole number of sparks a second, 0 or more"))?.min(MAX_TRAIL)),
+            "trail" => {
+                e.trail = Some(
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| {
+                            format!("{n}: trail is a whole number of sparks a second, 0 or more")
+                        })?
+                        .min(MAX_TRAIL),
+                )
+            }
             "core" => e.core = Some(number()?.min(MAX_CORE)),
-            k if SPRITES.contains(&k) && !value.is_empty() && value.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') => {
-                e.sprites[SPRITES.iter().position(|s| *s == k).unwrap_or(0)] = Some(value.to_string());
+            k if SPRITES.contains(&k)
+                && !value.is_empty()
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') =>
+            {
+                e.sprites[SPRITES.iter().position(|s| *s == k).unwrap_or(0)] =
+                    Some(value.to_string());
             }
-            k if SPRITES.contains(&k) => return Err(format!("{n}: {key} is a sprite's name, such as SHOT_SPARK")),
-            "color" => e.color = Some(crate::paint::hex(value).filter(|_| value.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: color is RRGGBB as palette.txt writes one, such as E8D27A"))?),
+            k if SPRITES.contains(&k) => {
+                return Err(format!("{n}: {key} is a sprite's name, such as SHOT_SPARK"));
+            }
+            "color" => {
+                e.color = Some(
+                    crate::paint::hex(value)
+                        .filter(|_| value.bytes().all(|b| b.is_ascii_hexdigit()))
+                        .ok_or_else(|| {
+                            format!(
+                                "{n}: color is RRGGBB as palette.txt writes one, such as E8D27A"
+                            )
+                        })?,
+                )
+            }
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
     }
@@ -351,9 +515,13 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
         .zip(NAMES)
         .enumerate()
         .map(|(k, (e, name))| match e {
-            Some(e) if e.art.is_empty() && !e.is_shot() => Err(format!("[{name}] needs an art line")),
+            Some(e) if e.art.is_empty() && !e.is_shot() => {
+                Err(format!("[{name}] needs an art line"))
+            }
             Some(e) => Ok(e),
-            None if ADDED_LATER.contains(name) && text != BUILT_IN => game().map(|g| g[k].clone()).ok_or_else(|| format!("no [{name}]")),
+            None if ADDED_LATER.contains(name) && text != BUILT_IN => game()
+                .map(|g| g[k].clone())
+                .ok_or_else(|| format!("no [{name}]")),
             None => Err(format!("no [{name}]")),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -380,12 +548,19 @@ pub fn shot_named(text: &str, name: Option<&str>) -> Option<Shot> {
 
 /// The names of the sprites a bullet named `name` draws, as `shot_named` finds its style; None draws the shape.
 pub fn shot_sprite_names(text: &str, name: Option<&str>) -> [Option<String>; SPRITES.len()] {
-    let Ok((own, extra)) = parse(text) else { return Default::default() };
+    let Ok((own, extra)) = parse(text) else {
+        return Default::default();
+    };
     let at = NAMES.iter().position(|n| *n == "bullet").unwrap_or(0);
-    let game = parse(BUILT_IN).map(|(g, _)| g[at].sprites.clone()).unwrap_or_default();
-    let bullet: [Option<String>; SPRITES.len()] = std::array::from_fn(|k| own[at].sprites[k].clone().or_else(|| game[k].clone()));
+    let game = parse(BUILT_IN)
+        .map(|(g, _)| g[at].sprites.clone())
+        .unwrap_or_default();
+    let bullet: [Option<String>; SPRITES.len()] =
+        std::array::from_fn(|k| own[at].sprites[k].clone().or_else(|| game[k].clone()));
     match section(&own, &extra, name) {
-        Some(w) if w.is_shot() => std::array::from_fn(|k| w.sprites[k].clone().or_else(|| bullet[k].clone())),
+        Some(w) if w.is_shot() => {
+            std::array::from_fn(|k| w.sprites[k].clone().or_else(|| bullet[k].clone()))
+        }
         Some(_) => Default::default(),
         None => bullet,
     }
@@ -395,7 +570,11 @@ pub fn shot_sprite_names(text: &str, name: Option<&str>) -> [Option<String>; SPR
 fn section<'a>(own: &'a [Written], extra: &'a Extra, name: Option<&str>) -> Option<&'a Written> {
     match name.unwrap_or("bullet") {
         "bullet" => None,
-        n => NAMES.iter().position(|k| *k == n).map(|k| &own[k]).or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w)),
+        n => NAMES
+            .iter()
+            .position(|k| *k == n)
+            .map(|k| &own[k])
+            .or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w)),
     }
 }
 
@@ -404,7 +583,11 @@ fn frames_of(name: &str) -> Option<&'static [Art]> {
     if name.is_empty() {
         return frames_of("BULLET");
     }
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::props::prop(name).map(|p| p.frames))
+    art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| *f)
+        .or_else(|| super::props::prop(name).map(|p| p.frames))
 }
 
 /// The game's effects, read the first time they're asked for. A sprite that isn't there plays the game's own.
@@ -462,16 +645,59 @@ mod tests {
         assert_eq!((e.scythe.life, e.scythe.reach), (0.3, 0.7));
         assert_eq!(e.money.once(10.0), art::ZOMBIE_HEART[5]);
         let own = include_str!("../../effects.txt");
-        assert_eq!(parse(&own.replace("art SLASH\n", "")).unwrap_err(), "[slash] needs an art line");
-        assert!(parse("[Sparkle]\nart X").unwrap_err().starts_with("1: [Sparkle]"));
-        assert!(parse("[slash]\nart SLASH").unwrap_err().starts_with("no [muzzle_pistol]"));
-        let older = own.replace("[spit]\nart BLOOD_SPLAT\nfps 10\n", "").replace("[mound]\nart MOUND\nfps 6\n", "").replace("[mound_breaks]\nart DIRT_PUFF\nfps 9\n", "");
-        let older = older.replace("[maul]\nart MAUL_SMASH\n", "[maul_gone]\nart MAUL_SMASH\n").replace("[ground_crack]\n", "[ground_crack_gone]\n").replace("[drone]\nart DRONE\n", "[drone_gone]\nart DRONE\n").replace("[stake]\nart STAKE\n", "[stake_gone]\nart STAKE\n");
+        assert_eq!(
+            parse(&own.replace("art SLASH\n", "")).unwrap_err(),
+            "[slash] needs an art line"
+        );
+        assert!(
+            parse("[Sparkle]\nart X")
+                .unwrap_err()
+                .starts_with("1: [Sparkle]")
+        );
+        assert!(
+            parse("[slash]\nart SLASH")
+                .unwrap_err()
+                .starts_with("no [muzzle_pistol]")
+        );
+        let older = own
+            .replace("[spit]\nart BLOOD_SPLAT\nfps 10\n", "")
+            .replace("[mound]\nart MOUND\nfps 6\n", "")
+            .replace("[mound_breaks]\nart DIRT_PUFF\nfps 9\n", "");
+        let older = older
+            .replace("[maul]\nart MAUL_SMASH\n", "[maul_gone]\nart MAUL_SMASH\n")
+            .replace("[ground_crack]\n", "[ground_crack_gone]\n")
+            .replace("[drone]\nart DRONE\n", "[drone_gone]\nart DRONE\n")
+            .replace("[stake]\nart STAKE\n", "[stake_gone]\nart STAKE\n");
         assert_eq!(older.matches('[').count(), own.matches('[').count() - 3);
-        let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(7).map(|w| w.art.clone()).collect();
-        assert_eq!(arts, ["STAKE", "DRONE", "GROUND_CRACK", "MAUL_SMASH", "DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit], [mound], [maul], [drone] and [stake] plays the game's");
+        let arts: Vec<_> = parse(&older)
+            .unwrap()
+            .0
+            .iter()
+            .rev()
+            .take(7)
+            .map(|w| w.art.clone())
+            .collect();
+        assert_eq!(
+            arts,
+            [
+                "STAKE",
+                "DRONE",
+                "GROUND_CRACK",
+                "MAUL_SMASH",
+                "DIRT_PUFF",
+                "MOUND",
+                "BLOOD_SPLAT"
+            ],
+            "a mod's file from before [spit], [mound], [maul], [drone] and [stake] plays the game's"
+        );
         let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
-        assert_eq!((extra.last().unwrap().0.as_str(), extra.last().unwrap().1.fps), ("red_slash", 9.0));
+        assert_eq!(
+            (
+                extra.last().unwrap().0.as_str(),
+                extra.last().unwrap().1.fps
+            ),
+            ("red_slash", 9.0)
+        );
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
     }
@@ -479,76 +705,220 @@ mod tests {
     #[test]
     fn an_effect_reads_its_alpha_and_fades_and_one_without_them_is_opaque() {
         let own = include_str!("../../effects.txt");
-        let (_, extra) = parse(&format!("{own}\n[ghost]\nart SMOKE\nalpha 0.5\nfade_in 0.2\nfade_out 0.4\n[plain]\nart SMOKE")).unwrap();
-        assert_eq!(extra[extra.len() - 2].1.fade, Fade { alpha: 0.5, fade_in: 0.2, fade_out: 0.4 });
-        assert_eq!(extra[extra.len() - 1].1.fade, Fade::OPAQUE, "a section from before alpha draws opaque");
+        let (_, extra) = parse(&format!(
+            "{own}\n[ghost]\nart SMOKE\nalpha 0.5\nfade_in 0.2\nfade_out 0.4\n[plain]\nart SMOKE"
+        ))
+        .unwrap();
+        assert_eq!(
+            extra[extra.len() - 2].1.fade,
+            Fade {
+                alpha: 0.5,
+                fade_in: 0.2,
+                fade_out: 0.4
+            }
+        );
+        assert_eq!(
+            extra[extra.len() - 1].1.fade,
+            Fade::OPAQUE,
+            "a section from before alpha draws opaque"
+        );
         let f = extra[extra.len() - 2].1.fade;
-        assert_eq!([0.0, 0.1, 0.4, 0.8, 1.0].map(|k| (f.at(k) * 100.0).round() / 100.0), [0.0, 0.25, 0.5, 0.25, 0.0]);
-        for bad in ["alpha 0", "alpha 1.2", "alpha x", "fade_in -0.1", "fade_out 2", "fade_out nan"] {
-            assert!(parse(&format!("{own}\n[ghost]\nart SMOKE\n{bad}")).is_err(), "{bad}");
+        assert_eq!(
+            [0.0, 0.1, 0.4, 0.8, 1.0].map(|k| (f.at(k) * 100.0).round() / 100.0),
+            [0.0, 0.25, 0.5, 0.25, 0.0]
+        );
+        for bad in [
+            "alpha 0",
+            "alpha 1.2",
+            "alpha x",
+            "fade_in -0.1",
+            "fade_out 2",
+            "fade_out nan",
+        ] {
+            assert!(
+                parse(&format!("{own}\n[ghost]\nart SMOKE\n{bad}")).is_err(),
+                "{bad}"
+            );
         }
     }
 
     #[test]
     fn a_bullet_flies_as_the_shot_style_its_section_sets() {
         let own = include_str!("../../effects.txt");
-        let shot = effects().bullet.shot.expect("the game's bullet is a streak of particles");
+        let shot = effects()
+            .bullet
+            .shot
+            .expect("the game's bullet is a streak of particles");
         assert!(shot.length > 0.0 && shot.size > 0.0 && shot.sparks > 0);
-        let (_, extra) = parse(&format!("{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3\nimpact 2\ncore 6")).unwrap();
+        let (_, extra) = parse(&format!(
+            "{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3\nimpact 2\ncore 6"
+        ))
+        .unwrap();
         let w = &extra.last().unwrap().1;
-        assert_eq!((w.art.as_str(), w.color, w.length, w.size, w.sparks), ("", Some([0x7A, 0xA0, 0x62]), Some(20.0), Some(2.0), Some(3)), "a style needs no art");
+        assert_eq!(
+            (w.art.as_str(), w.color, w.length, w.size, w.sparks),
+            ("", Some([0x7A, 0xA0, 0x62]), Some(20.0), Some(2.0), Some(3)),
+            "a style needs no art"
+        );
         assert_eq!((w.impact, w.core), (Some(2), Some(6.0)));
-        assert_eq!(parse(&format!("{own}\n[plain]\nfps 3")).unwrap_err(), "[plain] needs an art line");
-        let (_, extra) = parse(&format!("{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000\nimpact 999\ncore 1e30")).unwrap();
+        assert_eq!(
+            parse(&format!("{own}\n[plain]\nfps 3")).unwrap_err(),
+            "[plain] needs an art line"
+        );
+        let (_, extra) = parse(&format!(
+            "{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000\nimpact 999\ncore 1e30"
+        ))
+        .unwrap();
         let w = &extra.last().unwrap().1;
-        assert_eq!((w.length, w.size, w.sparks, w.impact, w.core), (Some(MAX_LENGTH), Some(MAX_SIZE), Some(MAX_SPARKS), Some(MAX_SPARKS), Some(MAX_CORE)), "a mod's numbers are capped");
-        for bad in ["length NaN", "length inf", "length -2", "size 0", "sparks 1.5", "sparks -1", "impact x", "core NaN", "core 0", "color 7AA06", "color GGGGGG", "color 0.5 0.5 0.5"] {
-            assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
+        assert_eq!(
+            (w.length, w.size, w.sparks, w.impact, w.core),
+            (
+                Some(MAX_LENGTH),
+                Some(MAX_SIZE),
+                Some(MAX_SPARKS),
+                Some(MAX_SPARKS),
+                Some(MAX_CORE)
+            ),
+            "a mod's numbers are capped"
+        );
+        for bad in [
+            "length NaN",
+            "length inf",
+            "length -2",
+            "size 0",
+            "sparks 1.5",
+            "sparks -1",
+            "impact x",
+            "core NaN",
+            "core 0",
+            "color 7AA06",
+            "color GGGGGG",
+            "color 0.5 0.5 0.5",
+        ] {
+            assert!(
+                parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(),
+                "{bad}"
+            );
         }
-        let guns = own.find("[pistol_shot]").unwrap()..own.find("# The colors of particles").unwrap();
-        let older: String = own.replace(&own[guns], "").lines().filter(|l| !["color", "length", "size", "sparks", "impact", "trail", "core"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
+        let guns =
+            own.find("[pistol_shot]").unwrap()..own.find("# The colors of particles").unwrap();
+        let older: String = own
+            .replace(&own[guns], "")
+            .lines()
+            .filter(|l| {
+                ![
+                    "color", "length", "size", "sparks", "impact", "trail", "core",
+                ]
+                .iter()
+                .any(|k| l.starts_with(k))
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
         let (mine, _) = parse(&older).unwrap();
-        assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
+        assert!(
+            mine.iter().all(|w| w.color.is_none()),
+            "a mod's file from before shot styles still reads"
+        );
     }
 
     #[test]
     fn a_page_reads_the_shot_a_weapon_fires_as_the_game_does() {
         let own = include_str!("../../effects.txt");
         assert_eq!(shot_named(own, None), effects().bullet.shot);
-        assert_eq!(shot_named(own, Some("slash")), None, "a sprite's section is no style");
-        assert_eq!(shot_named(own, Some("nope")), shot_named(own, None), "a name the file lacks fires [bullet], as the game does");
+        assert_eq!(
+            shot_named(own, Some("slash")),
+            None,
+            "a sprite's section is no style"
+        );
+        assert_eq!(
+            shot_named(own, Some("nope")),
+            shot_named(own, None),
+            "a name the file lacks fires [bullet], as the game does"
+        );
         let text = format!("{own}\n[tracer]\nlength 30");
         let tracer = shot_named(&text, Some("tracer")).unwrap();
-        assert_eq!((tracer.length, tracer.sparks), (30.0, effects().bullet.shot.unwrap().sparks), "the rest from [bullet]");
+        assert_eq!(
+            (tracer.length, tracer.sparks),
+            (30.0, effects().bullet.shot.unwrap().sparks),
+            "the rest from [bullet]"
+        );
     }
 
     #[test]
     fn a_shot_draws_the_sprites_it_names_and_a_plain_shape_for_any_it_cant_find() {
         let own = include_str!("../../effects.txt");
         let pistol = effects().named("pistol_shot").and_then(|e| e.shot).unwrap();
-        assert_eq!(pistol.sprites, [Some(&[art::SHOT_TRACER][..]), Some(&art::SHOT_SPARK[..]), Some(&art::SHOT_SMOKE[..]), Some(&art::SHOT_FLARE[..])]);
+        assert_eq!(
+            pistol.sprites,
+            [
+                Some(&[art::SHOT_TRACER][..]),
+                Some(&art::SHOT_SPARK[..]),
+                Some(&art::SHOT_SMOKE[..]),
+                Some(&art::SHOT_FLARE[..])
+            ]
+        );
         let names = |name| shot_sprite_names(own, name).map(|n| n.unwrap_or_default());
-        assert_eq!(names(Some("shotgun_pellet")), ["SHOT_PELLET", "SHOT_SPARK", "SHOT_SMOKE", "SHOT_FLARE"]);
-        assert_eq!(names(Some("nope")), names(None), "a name the file lacks draws [bullet]'s");
-        assert_eq!(shot_sprite_names(own, Some("slash")), [None, None, None, None], "a sprite's section is no style");
+        assert_eq!(
+            names(Some("shotgun_pellet")),
+            ["SHOT_PELLET", "SHOT_SPARK", "SHOT_SMOKE", "SHOT_FLARE"]
+        );
+        assert_eq!(
+            names(Some("nope")),
+            names(None),
+            "a name the file lacks draws [bullet]'s"
+        );
+        assert_eq!(
+            shot_sprite_names(own, Some("slash")),
+            [None, None, None, None],
+            "a sprite's section is no style"
+        );
         let text = format!("{own}\n[mine]\nlength 30\ntracer SHOT_PELLET\nspark PROP_NOPE");
         let mine = shot_named(&text, Some("mine")).unwrap();
         assert_eq!(mine.sprites[TRACER], Some(&[art::SHOT_PELLET][..]));
-        assert_eq!(mine.sprites[SPARK], None, "a sprite that isn't there draws the plain spark");
-        assert_eq!(mine.sprites[SMOKE], Some(&art::SHOT_SMOKE[..]), "the rest from [bullet]");
-        let older: String = own.lines().filter(|l| !SPRITES.iter().any(|k| l.starts_with(&format!("{k} ")))).map(|l| format!("{l}\n")).collect();
-        assert_eq!(shot_named(&older, None).unwrap().sprites[FLARE], Some(&art::SHOT_FLARE[..]), "a mod's [bullet] without sprites keeps the game's");
+        assert_eq!(
+            mine.sprites[SPARK], None,
+            "a sprite that isn't there draws the plain spark"
+        );
+        assert_eq!(
+            mine.sprites[SMOKE],
+            Some(&art::SHOT_SMOKE[..]),
+            "the rest from [bullet]"
+        );
+        let older: String = own
+            .lines()
+            .filter(|l| !SPRITES.iter().any(|k| l.starts_with(&format!("{k} "))))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(
+            shot_named(&older, None).unwrap().sprites[FLARE],
+            Some(&art::SHOT_FLARE[..]),
+            "a mod's [bullet] without sprites keeps the game's"
+        );
         for bad in ["tracer", "spark shot_spark", "smoke Shot", "flare A B"] {
-            assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
+            assert!(
+                parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(),
+                "{bad}"
+            );
         }
     }
 
     #[test]
     fn blasts_and_eruptions_fade_out_as_they_end() {
         let e = effects();
-        for (name, fx) in [("explosion", e.explosion), ("explosion_smoke", e.explosion_smoke), ("zombie_rises", e.zombie_rises), ("mound_breaks", e.mound_breaks)] {
-            let a: Vec<f32> = [0.5, 0.7, 0.9, 1.0].iter().map(|&k| fx.fade.at(k)).collect();
-            assert!(a.windows(2).all(|w| w[1] < w[0]) && a[3] == 0.0, "{name} fades to clear: {a:?}");
+        for (name, fx) in [
+            ("explosion", e.explosion),
+            ("explosion_smoke", e.explosion_smoke),
+            ("zombie_rises", e.zombie_rises),
+            ("mound_breaks", e.mound_breaks),
+        ] {
+            let a: Vec<f32> = [0.5, 0.7, 0.9, 1.0]
+                .iter()
+                .map(|&k| fx.fade.at(k))
+                .collect();
+            assert!(
+                a.windows(2).all(|w| w[1] < w[0]) && a[3] == 0.0,
+                "{name} fades to clear: {a:?}"
+            );
         }
     }
 
@@ -556,30 +926,67 @@ mod tests {
     fn the_games_own_shot_colors_come_from_its_palette() {
         let (own, extra) = parse(include_str!("../../effects.txt")).unwrap();
         let palette = crate::paint::palette();
-        for c in own.iter().chain(extra.iter().map(|(_, w)| w)).filter_map(|w| w.color) {
+        for c in own
+            .iter()
+            .chain(extra.iter().map(|(_, w)| w))
+            .filter_map(|w| w.color)
+        {
             assert!(palette.contains(&c), "{c:02X?} isn't in palette.txt");
         }
     }
 
     #[test]
     fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, trail: 0, core: 4.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE };
+        let shot = Shot {
+            color: [1.0; 3],
+            length: 12.0,
+            size: 1.5,
+            sparks: 4,
+            impact: 3,
+            trail: 0,
+            core: 4.0,
+            sprites: [None; SPRITES.len()],
+            fade: Fade::OPAQUE,
+        };
         assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
         let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
-        assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");
+        assert!(
+            (fresh[0] - 98.0).abs() < 1e-3,
+            "a bullet two pixels out trails two pixels"
+        );
         assert_eq!(shot.tail([5.0, 5.0], [0.0, 0.0], 1.0), [5.0, 5.0]);
         let (head, tail) = (Shot::taper(0.0), Shot::taper(1.0));
-        assert!(head.0 > tail.0 && head.1 > tail.1 && tail.0 > 0.0, "it thins and dims toward the tail");
+        assert!(
+            head.0 > tail.0 && head.1 > tail.1 && tail.0 > 0.0,
+            "it thins and dims toward the tail"
+        );
     }
 
     #[test]
     fn particle_colors_read_and_a_mod_sets_only_some() {
         assert_eq!(colors()[0], [0.62, 0.08, 0.06]);
-        let mine = parse_colors("[colors]\ngold 0 0 1\n[slash]\nart SLASH", Some(colors())).unwrap();
+        let mine =
+            parse_colors("[colors]\ngold 0 0 1\n[slash]\nart SLASH", Some(colors())).unwrap();
         assert_eq!((mine[5], mine[0]), ([0.0, 0.0, 1.0], colors()[0]));
-        assert_eq!(parse_colors("[colors]\ngold 0 0 1", None).unwrap_err(), "[colors] doesn't set blood");
-        assert!(parse_colors("[colors]\nmauve 1 1 1", Some(colors())).unwrap_err().starts_with("2: mauve isn't a color"));
-        assert!(parse_colors("[colors]\ngold 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"));
-        assert!(parse_colors("[colors]\ngold 1 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"), "a number out of range isn't dropped");
+        assert_eq!(
+            parse_colors("[colors]\ngold 0 0 1", None).unwrap_err(),
+            "[colors] doesn't set blood"
+        );
+        assert!(
+            parse_colors("[colors]\nmauve 1 1 1", Some(colors()))
+                .unwrap_err()
+                .starts_with("2: mauve isn't a color")
+        );
+        assert!(
+            parse_colors("[colors]\ngold 2 0 0", Some(colors()))
+                .unwrap_err()
+                .starts_with("2: gold takes")
+        );
+        assert!(
+            parse_colors("[colors]\ngold 1 2 0 0", Some(colors()))
+                .unwrap_err()
+                .starts_with("2: gold takes"),
+            "a number out of range isn't dropped"
+        );
     }
 }

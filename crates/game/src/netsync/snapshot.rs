@@ -178,15 +178,35 @@ impl BookState {
             w.var(held);
             w.var(damage);
         }
-        for v in [self.other, self.kills, self.useful, self.hearts, self.fell, self.led, self.bites] {
+        for v in [
+            self.other,
+            self.kills,
+            self.useful,
+            self.hearts,
+            self.fell,
+            self.led,
+            self.bites,
+        ] {
             w.var(v);
         }
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
         let seat = r.u8()?;
-        let weapons = (0..r.u8()?).map(|_| Some((r.u8()?, r.var()?, r.var()?))).collect::<Option<Vec<_>>>()?;
-        Some(BookState { seat, weapons, other: r.var()?, kills: r.var()?, useful: r.var()?, hearts: r.var()?, fell: r.var()?, led: r.var()?, bites: r.var()? })
+        let weapons = (0..r.u8()?)
+            .map(|_| Some((r.u8()?, r.var()?, r.var()?)))
+            .collect::<Option<Vec<_>>>()?;
+        Some(BookState {
+            seat,
+            weapons,
+            other: r.var()?,
+            kills: r.var()?,
+            useful: r.var()?,
+            hearts: r.var()?,
+            fell: r.var()?,
+            led: r.var()?,
+            bites: r.var()?,
+        })
     }
 }
 
@@ -244,20 +264,41 @@ impl RunState {
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
-        let mut s = RunState { t: r.var()?, phase: r.u8()?, level: r.var()? as u16, xp: r.var()?, next_xp: r.var()?, kills: r.var()?, menu: r.u8()?, paused_by: r.u8()?, chest: r.u8()? != 0, ..RunState::default() };
+        let mut s = RunState {
+            t: r.var()?,
+            phase: r.u8()?,
+            level: r.var()? as u16,
+            xp: r.var()?,
+            next_xp: r.var()?,
+            kills: r.var()?,
+            menu: r.u8()?,
+            paused_by: r.u8()?,
+            chest: r.u8()? != 0,
+            ..RunState::default()
+        };
         for _ in 0..r.u8()? {
             let seat = r.u8()?;
             let mut choices = [(0, 0); 3];
             for c in &mut choices {
                 *c = (r.u8()?, r.u8()?);
             }
-            s.cards.push(SeatCards { seat, choices, selected: r.u8()?, picked: r.u8()? != 0, banishes: r.u8()?, rerolls: r.u8()?, favors: r.u8()? });
+            s.cards.push(SeatCards {
+                seat,
+                choices,
+                selected: r.u8()?,
+                picked: r.u8()? != 0,
+                banishes: r.u8()?,
+                rerolls: r.u8()?,
+                favors: r.u8()?,
+            });
         }
         s.ticket = r.var()?;
         let books = r.u8()?;
         if books > 0 {
             s.played = r.var()?;
-            s.books = (0..books).map(|_| BookState::read(r)).collect::<Option<Vec<_>>>()?;
+            s.books = (0..books)
+                .map(|_| BookState::read(r))
+                .collect::<Option<Vec<_>>>()?;
         }
         Some(s)
     }
@@ -298,13 +339,22 @@ impl ZombieState {
     }
 
     fn read_full(id: u32, r: &mut Reader) -> Option<Self> {
-        Some(ZombieState { id, kind: r.u8()?, pos: [r.u16()?, r.u16()?], hp: r.u8()?, flags: r.u8()? })
+        Some(ZombieState {
+            id,
+            kind: r.u8()?,
+            pos: [r.u16()?, r.u16()?],
+            hp: r.u8()?,
+            flags: r.u8()?,
+        })
     }
 
     /// Nothing when it hasn't changed from `was`.
     fn write_delta(&self, was: &ZombieState, w: &mut Writer) {
         let bit = |changed: bool, b: u8| if changed { b } else { 0 };
-        let mask = bit(self.pos != was.pos, ZD_POS) | bit(self.hp != was.hp, ZD_HP) | bit(self.flags != was.flags, ZD_FLAGS) | bit(self.kind != was.kind, ZD_KIND);
+        let mask = bit(self.pos != was.pos, ZD_POS)
+            | bit(self.hp != was.hp, ZD_HP)
+            | bit(self.flags != was.flags, ZD_FLAGS)
+            | bit(self.kind != was.kind, ZD_KIND);
         if mask == 0 {
             return;
         }
@@ -384,13 +434,26 @@ impl PetState {
 
     fn read_full(key: (u8, u16, u8), r: &mut Reader) -> Option<Self> {
         let (owner, def, slot) = key;
-        Some(PetState { owner, def, slot, pos: [r.u16()?, r.u16()?], heading: r.u8()?, anim: r.u16()?, leap: r.u8()?, heart: r.var()? as u16 })
+        Some(PetState {
+            owner,
+            def,
+            slot,
+            pos: [r.u16()?, r.u16()?],
+            heading: r.u8()?,
+            anim: r.u16()?,
+            leap: r.u8()?,
+            heart: r.var()? as u16,
+        })
     }
 
     /// A mask byte, 0 when it hasn't changed from `was`, then what changed.
     fn write_delta(&self, was: &PetState, w: &mut Writer) {
         let bit = |changed: bool, b: u8| if changed { b } else { 0 };
-        let mask = bit(self.pos != was.pos, PD_POS) | bit(self.heading != was.heading, PD_HEADING) | bit(self.anim != was.anim, PD_ANIM) | bit(self.leap != was.leap, PD_LEAP) | bit(self.heart != was.heart, PD_HEART);
+        let mask = bit(self.pos != was.pos, PD_POS)
+            | bit(self.heading != was.heading, PD_HEADING)
+            | bit(self.anim != was.anim, PD_ANIM)
+            | bit(self.leap != was.leap, PD_LEAP)
+            | bit(self.heart != was.heart, PD_HEART);
         w.u8(mask);
         if mask & PD_POS != 0 {
             w.svar(self.pos[0] as i32 - was.pos[0] as i32);
@@ -459,7 +522,11 @@ fn read_pets(base: &[PetState], r: &mut Reader) -> Option<Vec<PetState>> {
     }
     (0..n)
         .map(|i| {
-            let key = if same { base[i].key() } else { (r.u8()?, r.var()? as u16, r.u8()?) };
+            let key = if same {
+                base[i].key()
+            } else {
+                (r.u8()?, r.var()? as u16, r.u8()?)
+            };
             match base.iter().find(|b| b.key() == key) {
                 Some(was) => PetState::read_delta(was, r),
                 None => PetState::read_full(key, r),
@@ -500,7 +567,12 @@ impl Thing {
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
-        Some(Thing { kind: r.u8()?, sub: r.u8()?, pos: [r.u16()?, r.u16()?], data: [r.var()? as u16, r.var()? as u16, r.var()? as u16] })
+        Some(Thing {
+            kind: r.u8()?,
+            sub: r.u8()?,
+            pos: [r.u16()?, r.u16()?],
+            data: [r.var()? as u16, r.var()? as u16, r.var()? as u16],
+        })
     }
 }
 
@@ -522,11 +594,29 @@ pub enum Spawn {
     /// `look` is the firing weapon's place in the powerup book plus one, 0 for none; velocity in 1/8 px a second
     /// and life in 1/50 s. `arc` is an arcing shot's peak in px, then its flight and its age where this run begins
     /// in ms; all 0 for a flat shot, which keeps tag 0 and its old bytes.
-    Shot { owner: u8, look: u16, from: [u16; 2], vel: [i16; 2], life: u8, arc: [u16; 3] },
-    Spit { kind: u8, from: [u16; 2], vel: [i16; 2], life: u8 },
-    Bolt { points: Vec<[u16; 2]> },
+    Shot {
+        owner: u8,
+        look: u16,
+        from: [u16; 2],
+        vel: [i16; 2],
+        life: u8,
+        arc: [u16; 3],
+    },
+    Spit {
+        kind: u8,
+        from: [u16; 2],
+        vel: [i16; 2],
+        life: u8,
+    },
+    Bolt {
+        points: Vec<[u16; 2]>,
+    },
     /// An effect by its first frame's art.
-    Fx { art: u16, pos: [u16; 2], angle: u8 },
+    Fx {
+        art: u16,
+        pos: [u16; 2],
+        angle: u8,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -543,7 +633,14 @@ impl Spawn {
             w.u16(p[1]);
         };
         match self {
-            Spawn::Shot { owner, look, from, vel, life, arc } => {
+            Spawn::Shot {
+                owner,
+                look,
+                from,
+                vel,
+                life,
+                arc,
+            } => {
                 let arcs = *arc != [0; 3];
                 w.u8(if arcs { 4 } else { 0 });
                 w.u8(*owner);
@@ -556,7 +653,12 @@ impl Spawn {
                     arc.iter().for_each(|&a| w.var(a as u32));
                 }
             }
-            Spawn::Spit { kind, from, vel, life } => {
+            Spawn::Spit {
+                kind,
+                from,
+                vel,
+                life,
+            } => {
                 w.u8(1);
                 w.u8(*kind);
                 at(w, *from);
@@ -581,16 +683,46 @@ impl Spawn {
     fn read(r: &mut Reader) -> Option<Self> {
         Some(match r.u8()? {
             tag @ (0 | 4) => {
-                let (owner, look, from, vel, life) = (r.u8()?, r.var()? as u16, [r.u16()?, r.u16()?], [r.i16()?, r.i16()?], r.u8()?);
-                let arc = if tag == 4 { [r.var()? as u16, r.var()? as u16, r.var()? as u16] } else { [0; 3] };
-                Spawn::Shot { owner, look, from, vel, life, arc }
+                let (owner, look, from, vel, life) = (
+                    r.u8()?,
+                    r.var()? as u16,
+                    [r.u16()?, r.u16()?],
+                    [r.i16()?, r.i16()?],
+                    r.u8()?,
+                );
+                let arc = if tag == 4 {
+                    [r.var()? as u16, r.var()? as u16, r.var()? as u16]
+                } else {
+                    [0; 3]
+                };
+                Spawn::Shot {
+                    owner,
+                    look,
+                    from,
+                    vel,
+                    life,
+                    arc,
+                }
             }
-            1 => Spawn::Spit { kind: r.u8()?, from: [r.u16()?, r.u16()?], vel: [r.i16()?, r.i16()?], life: r.u8()? },
+            1 => Spawn::Spit {
+                kind: r.u8()?,
+                from: [r.u16()?, r.u16()?],
+                vel: [r.i16()?, r.i16()?],
+                life: r.u8()?,
+            },
             2 => {
                 let n = r.u8()?;
-                Spawn::Bolt { points: (0..n).map(|_| Some([r.u16()?, r.u16()?])).collect::<Option<_>>()? }
+                Spawn::Bolt {
+                    points: (0..n)
+                        .map(|_| Some([r.u16()?, r.u16()?]))
+                        .collect::<Option<_>>()?,
+                }
             }
-            3 => Spawn::Fx { art: r.var()? as u16, pos: [r.u16()?, r.u16()?], angle: r.u8()? },
+            3 => Spawn::Fx {
+                art: r.var()? as u16,
+                pos: [r.u16()?, r.u16()?],
+                angle: r.u8()?,
+            },
             _ => return None,
         })
     }
@@ -609,14 +741,23 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(tick: u32, players: Vec<PlayerState>, mut zombies: Vec<ZombieState>, mut things: Vec<Thing>) -> Self {
+    pub fn new(
+        tick: u32,
+        players: Vec<PlayerState>,
+        mut zombies: Vec<ZombieState>,
+        mut things: Vec<Thing>,
+    ) -> Self {
         zombies.sort_by_key(|z| z.id);
         zombies.dedup_by_key(|z| z.id);
         things.sort();
         let mut keyed: Vec<(u32, Thing)> = Vec::with_capacity(things.len());
         let mut nth = 0;
         for (i, t) in things.iter().enumerate() {
-            nth = if i > 0 && things[i - 1] == *t { nth + 1 } else { 0 };
+            nth = if i > 0 && things[i - 1] == *t {
+                nth + 1
+            } else {
+                0
+            };
             keyed.push((thing_key(t, nth), *t));
         }
         keyed.sort();
@@ -626,11 +767,21 @@ impl World {
             }
         }
         keyed.sort();
-        Self { tick, run: RunState::default(), players, zombies, things: keyed, pets: Vec::new() }
+        Self {
+            tick,
+            run: RunState::default(),
+            players,
+            zombies,
+            things: keyed,
+            pets: Vec::new(),
+        }
     }
 
     pub fn zombie(&self, id: u32) -> Option<&ZombieState> {
-        self.zombies.binary_search_by_key(&id, |z| z.id).ok().map(|i| &self.zombies[i])
+        self.zombies
+            .binary_search_by_key(&id, |z| z.id)
+            .ok()
+            .map(|i| &self.zombies[i])
     }
 
     fn has_thing(&self, key: u32) -> bool {
@@ -643,11 +794,22 @@ impl World {
         parts.sort_by_key(|p| p.index);
         World {
             tick: parts.first().map_or(0, |p| p.tick),
-            run: parts.first().map_or_else(RunState::default, |p| p.run.clone()),
+            run: parts
+                .first()
+                .map_or_else(RunState::default, |p| p.run.clone()),
             players: parts.first().map_or_else(Vec::new, |p| p.players.clone()),
-            zombies: parts.iter().flat_map(|p| p.zombies.iter().copied()).collect(),
-            things: parts.iter().flat_map(|p| p.things.iter().copied()).collect(),
-            pets: parts.iter().find_map(|p| p.pets.clone()).unwrap_or_default(),
+            zombies: parts
+                .iter()
+                .flat_map(|p| p.zombies.iter().copied())
+                .collect(),
+            things: parts
+                .iter()
+                .flat_map(|p| p.things.iter().copied())
+                .collect(),
+            pets: parts
+                .iter()
+                .find_map(|p| p.pets.clone())
+                .unwrap_or_default(),
         }
     }
 }
@@ -670,15 +832,30 @@ struct Group {
 
 impl Group {
     fn is_empty(&self) -> bool {
-        self.zombies.is_empty() && self.zombies_gone.is_empty() && self.things.is_empty() && self.things_gone.is_empty()
+        self.zombies.is_empty()
+            && self.zombies_gone.is_empty()
+            && self.things.is_empty()
+            && self.things_gone.is_empty()
     }
 
     fn first_zombie(&self) -> Option<u32> {
-        [self.zombies.first().map(|z| z.0), self.zombies_gone.first().copied()].into_iter().flatten().min()
+        [
+            self.zombies.first().map(|z| z.0),
+            self.zombies_gone.first().copied(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     fn first_thing(&self) -> Option<u32> {
-        [self.things.first().map(|t| t.0), self.things_gone.first().copied()].into_iter().flatten().min()
+        [
+            self.things.first().map(|t| t.0),
+            self.things_gone.first().copied(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -694,7 +871,14 @@ const PART_OVERHEAD: usize = 40;
 
 /// `world` as packets of at most `budget` bytes, coded against `base`, the latest snapshot the client acked, or
 /// whole without one. The first part also carries the events still owed from `first_seq` on, the spawns and the pets.
-pub fn encode(world: &World, base: Option<&World>, first_seq: u32, events: &[(u32, Event)], spawns: &[Spawned], budget: usize) -> Vec<Vec<u8>> {
+pub fn encode(
+    world: &World,
+    base: Option<&World>,
+    first_seq: u32,
+    events: &[(u32, Event)],
+    spawns: &[Spawned],
+    budget: usize,
+) -> Vec<Vec<u8>> {
     let mut players = Writer::new();
     world.run.write(&mut players);
     players.u8(world.players.len() as u8);
@@ -759,7 +943,12 @@ pub fn encode(world: &World, base: Option<&World>, first_seq: u32, events: &[(u3
     items.extend(old[b..].iter().map(|z| Item::ZombieGone(z.id)));
     let mut things: Vec<Item> = Vec::new();
     if let Some(base) = base {
-        things.extend(base.things.iter().filter(|t| !world.has_thing(t.0)).map(|t| Item::ThingGone(t.0)));
+        things.extend(
+            base.things
+                .iter()
+                .filter(|t| !world.has_thing(t.0))
+                .map(|t| Item::ThingGone(t.0)),
+        );
     }
     for (key, t) in &world.things {
         if base.is_none_or(|b| !b.has_thing(*key)) {
@@ -889,7 +1078,11 @@ pub fn peek(bytes: &[u8]) -> Option<(u32, Option<u32>)> {
     }
     let flags = r.u8()?;
     let tick = r.var()?;
-    let base = if flags & 1 != 0 { Some(tick.checked_sub(r.var()?)?) } else { None };
+    let base = if flags & 1 != 0 {
+        Some(tick.checked_sub(r.var()?)?)
+    } else {
+        None
+    };
     Some((tick, base))
 }
 
@@ -903,7 +1096,11 @@ pub enum DecodeError {
 
 /// Decodes a packet against `base`, which must be the snapshot it names.
 pub fn decode(bytes: &[u8], base: Option<&World>) -> Result<Part, DecodeError> {
-    let (_, want) = peek(bytes).ok_or(if bytes.first() == Some(&VERSION) { DecodeError::Short } else { DecodeError::Version })?;
+    let (_, want) = peek(bytes).ok_or(if bytes.first() == Some(&VERSION) {
+        DecodeError::Short
+    } else {
+        DecodeError::Version
+    })?;
     let base = match want {
         Some(t) => Some(base.filter(|b| b.tick == t).ok_or(DecodeError::NoBase)?),
         None => None,
@@ -916,7 +1113,11 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     r.u8()?;
     let flags = r.u8()?;
     let tick = r.var()?;
-    let base_tick = if flags & 1 != 0 { Some(tick - r.var()?) } else { None };
+    let base_tick = if flags & 1 != 0 {
+        Some(tick - r.var()?)
+    } else {
+        None
+    };
     let (index, count) = (r.u8()?, r.u8()?);
     let z_lo = r.var()?;
     let z_hi = match r.var()? {
@@ -925,7 +1126,9 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     };
     let (zr, tr) = ((z_lo, z_hi), (r.u32()?, r.u32()?));
     let run = RunState::read(&mut r)?;
-    let players = (0..r.u8()?).map(|_| PlayerState::read(&mut r)).collect::<Option<Vec<_>>>()?;
+    let players = (0..r.u8()?)
+        .map(|_| PlayerState::read(&mut r))
+        .collect::<Option<Vec<_>>>()?;
     let empty = World::default();
     let base_w = base.unwrap_or(&empty);
     let (mut events, mut spawns, mut pets) = (None, Vec::new(), None);
@@ -942,7 +1145,11 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
         for _ in 0..r.var()? {
             id = id.wrapping_add(r.var()?);
             let born = tick.checked_sub(r.var()?)?;
-            spawns.push(Spawned { id, tick: born, what: Spawn::read(&mut r)? });
+            spawns.push(Spawned {
+                id,
+                tick: born,
+                what: Spawn::read(&mut r)?,
+            });
         }
         pets = Some(read_pets(&base_w.pets, &mut r)?);
     }
@@ -963,18 +1170,44 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     }
     let mut things_gone = (0..r.var()?).map(|_| r.u32()).collect::<Option<Vec<_>>>()?;
     things_gone.sort_unstable();
-    let added = (0..r.var()?).map(|_| Some((r.u32()?, Thing::read(&mut r)?))).collect::<Option<Vec<_>>>()?;
+    let added = (0..r.var()?)
+        .map(|_| Some((r.u32()?, Thing::read(&mut r)?)))
+        .collect::<Option<Vec<_>>>()?;
 
-    let mut zombies: Vec<ZombieState> = base_w.zombies.iter().filter(|z| in_range(z.id, zr) && gone.binary_search(&z.id).is_err()).copied().collect();
+    let mut zombies: Vec<ZombieState> = base_w
+        .zombies
+        .iter()
+        .filter(|z| in_range(z.id, zr) && gone.binary_search(&z.id).is_err())
+        .copied()
+        .collect();
     for z in changed.into_iter().filter(|z| in_range(z.id, zr)) {
         match zombies.binary_search_by_key(&z.id, |o| o.id) {
             Ok(i) => zombies[i] = z,
             Err(i) => zombies.insert(i, z),
         }
     }
-    let mut things: Vec<(u32, Thing)> = base_w.things.iter().filter(|t| in_range(t.0, tr) && things_gone.binary_search(&t.0).is_err()).copied().collect();
+    let mut things: Vec<(u32, Thing)> = base_w
+        .things
+        .iter()
+        .filter(|t| in_range(t.0, tr) && things_gone.binary_search(&t.0).is_err())
+        .copied()
+        .collect();
     things.extend(added.into_iter().filter(|t| in_range(t.0, tr)));
     things.sort();
     things.dedup_by_key(|t| t.0);
-    Some(Part { tick, base: base_tick, index, count, zombie_range: zr, thing_range: tr, run, players, events, spawns, pets, zombies, things })
+    Some(Part {
+        tick,
+        base: base_tick,
+        index,
+        count,
+        zombie_range: zr,
+        thing_range: tr,
+        run,
+        players,
+        events,
+        spawns,
+        pets,
+        zombies,
+        things,
+    })
 }

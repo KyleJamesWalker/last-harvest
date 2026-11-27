@@ -43,13 +43,21 @@ fn lerp(a: f32, b: f32, k: f32) -> f32 {
 
 /// From `from` toward `to`, unless it jumped.
 fn between(from: [f32; 2], to: [f32; 2], k: f32) -> [f32; 2] {
-    if len(sub(to, from)) > JUMP { to } else { [lerp(from[0], to[0], k), lerp(from[1], to[1], k)] }
+    if len(sub(to, from)) > JUMP {
+        to
+    } else {
+        [lerp(from[0], to[0], k), lerp(from[1], to[1], k)]
+    }
 }
 
 /// From `from` toward `to` the short way round, in radians, unless it cut.
 fn turn(from: f32, to: f32, k: f32) -> f32 {
     let d = (to - from + PI).rem_euclid(TAU) - PI;
-    if d.abs() > CUT { to } else { (from + d * k).rem_euclid(TAU) }
+    if d.abs() > CUT {
+        to
+    } else {
+        (from + d * k).rem_euclid(TAU)
+    }
 }
 
 /// The step's seconds for one aged `age` by it, or 0 if it was born in that step.
@@ -63,13 +71,19 @@ impl Harvest {
         let b = &mut self.before;
         (b.taken, b.lean, b.t) = (true, self.lean, self.t);
         b.players.clear();
-        b.players.extend(self.players.iter().map(|p| (p.pos, p.view_yaw)));
+        b.players
+            .extend(self.players.iter().map(|p| (p.pos, p.view_yaw)));
         b.over = match self.phase {
             Phase::Over { t, .. } => Some(t),
             _ => None,
         };
         b.zombies.clear();
-        b.zombies.extend(self.zombies.iter().chain(&self.burrowed).map(|z| (z.id, z.pos)));
+        b.zombies.extend(
+            self.zombies
+                .iter()
+                .chain(&self.burrowed)
+                .map(|z| (z.id, z.pos)),
+        );
         b.zombies.sort_unstable_by_key(|e| e.0);
         let ids: Vec<u32> = b.zombies.iter().map(|e| e.0).collect();
         let shared = |i: usize| (i > 0 && ids[i - 1] == ids[i]) || ids.get(i + 1) == Some(&ids[i]);
@@ -89,7 +103,9 @@ impl Harvest {
     fn stepped(&self) -> (f32, f32) {
         let world = (self.t - self.before.t).max(0.0);
         let juice = match (self.before.over, self.phase) {
-            (Some(before), Phase::Over { t, .. }) => (t - before).max(0.0) * if t < TURN_SINK { 0.4 } else { 1.0 },
+            (Some(before), Phase::Over { t, .. }) => {
+                (t - before).max(0.0) * if t < TURN_SINK { 0.4 } else { 1.0 }
+            }
             _ => world,
         };
         (world, juice)
@@ -99,47 +115,102 @@ impl Harvest {
         let mut out = Vec::new();
         for b in &mut self.bullets {
             let dt = lived(b.age, world);
-            out.push(Mover { pos: Some(&mut b.pos), vel: b.vel, clock: Some(&mut b.age), dt });
+            out.push(Mover {
+                pos: Some(&mut b.pos),
+                vel: b.vel,
+                clock: Some(&mut b.age),
+                dt,
+            });
         }
         for s in &mut self.spits {
             let dt = lived(s.age, world);
-            out.push(Mover { pos: Some(&mut s.pos), vel: s.vel, clock: Some(&mut s.age), dt });
+            out.push(Mover {
+                pos: Some(&mut s.pos),
+                vel: s.vel,
+                clock: Some(&mut s.age),
+                dt,
+            });
         }
         for g in &mut self.thrown {
             let dt = lived(g.t, world);
-            out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut g.t), dt });
+            out.push(Mover {
+                pos: None,
+                vel: [0.0; 2],
+                clock: Some(&mut g.t),
+                dt,
+            });
         }
         for p in &mut self.players {
             for s in &mut p.swings {
                 let dt = lived(s.age, world);
-                out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut s.age), dt });
+                out.push(Mover {
+                    pos: None,
+                    vel: [0.0; 2],
+                    clock: Some(&mut s.age),
+                    dt,
+                });
             }
             for d in &mut p.dogs {
-                out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
+                out.push(Mover {
+                    pos: Some(&mut d.pos),
+                    vel: d.vel,
+                    clock: None,
+                    dt: world,
+                });
             }
             for d in &mut p.drones {
-                out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
+                out.push(Mover {
+                    pos: Some(&mut d.pos),
+                    vel: d.vel,
+                    clock: None,
+                    dt: world,
+                });
             }
         }
         for b in &mut self.birds {
             let dt = if b.flying || b.z > 0.0 { world } else { 0.0 };
-            out.push(Mover { pos: Some(&mut b.pos), vel: b.vel, clock: None, dt });
+            out.push(Mover {
+                pos: Some(&mut b.pos),
+                vel: b.vel,
+                clock: None,
+                dt,
+            });
         }
         for p in &mut self.juice.particles {
             let dt = lived(p.age, juice);
-            out.push(Mover { pos: Some(&mut p.pos), vel: p.vel, clock: Some(&mut p.age), dt });
+            out.push(Mover {
+                pos: Some(&mut p.pos),
+                vel: p.vel,
+                clock: Some(&mut p.age),
+                dt,
+            });
         }
         for c in &mut self.juice.corpses {
             let dt = lived(c.age, juice);
-            out.push(Mover { pos: Some(&mut c.pos), vel: c.vel, clock: Some(&mut c.age), dt });
+            out.push(Mover {
+                pos: Some(&mut c.pos),
+                vel: c.vel,
+                clock: Some(&mut c.age),
+                dt,
+            });
         }
         for p in &mut self.juice.popups {
             let dt = lived(p.age, juice);
-            out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut p.age), dt });
+            out.push(Mover {
+                pos: None,
+                vel: [0.0; 2],
+                clock: Some(&mut p.age),
+                dt,
+            });
         }
         for r in &mut self.juice.rings {
             let dt = lived(r.age, juice);
-            out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut r.age), dt });
+            out.push(Mover {
+                pos: None,
+                vel: [0.0; 2],
+                clock: Some(&mut r.age),
+                dt,
+            });
         }
         out
     }
@@ -153,7 +224,12 @@ impl Harvest {
         let alpha = alpha.max(0.0);
         let back = 1.0 - alpha;
         let (world, juice) = self.stepped();
-        let mut undo = Undo { players: Vec::new(), lean: self.lean, zombies: Vec::new(), movers: Vec::new() };
+        let mut undo = Undo {
+            players: Vec::new(),
+            lean: self.lean,
+            zombies: Vec::new(),
+            movers: Vec::new(),
+        };
         for (p, &(pos, yaw)) in self.players.iter_mut().zip(&self.before.players) {
             undo.players.push((p.pos, p.view_yaw));
             p.pos = between(pos, p.pos, alpha);
@@ -168,7 +244,10 @@ impl Harvest {
             }
         }
         for m in self.movers(world, juice) {
-            undo.movers.push((m.pos.as_deref().copied().unwrap_or_default(), m.clock.as_deref().copied().unwrap_or_default()));
+            undo.movers.push((
+                m.pos.as_deref().copied().unwrap_or_default(),
+                m.clock.as_deref().copied().unwrap_or_default(),
+            ));
             let s = m.dt * back;
             if let Some(p) = m.pos {
                 *p = [p[0] - m.vel[0] * s, p[1] - m.vel[1] * s];
@@ -185,7 +264,12 @@ impl Harvest {
             (p.pos, p.view_yaw) = (pos, yaw);
         }
         self.lean = undo.lean;
-        for (z, p) in self.zombies.iter_mut().chain(&mut self.burrowed).zip(undo.zombies) {
+        for (z, p) in self
+            .zombies
+            .iter_mut()
+            .chain(&mut self.burrowed)
+            .zip(undo.zombies)
+        {
             z.pos = p;
         }
         for (m, (p, c)) in self.movers(0.0, 0.0).into_iter().zip(undo.movers) {
@@ -213,15 +297,40 @@ mod tests {
 
     fn walk(h: &mut Harvest) {
         let mut sounds = Vec::new();
-        h.update(&Input { held: Buttons::UP, ..Default::default() }, STEP, &mut sounds);
+        h.update(
+            &Input {
+                held: Buttons::UP,
+                ..Default::default()
+            },
+            STEP,
+            &mut sounds,
+        );
     }
 
     fn fingerprint(h: &Harvest) -> String {
-        let zombies: Vec<_> = h.zombies.iter().chain(&h.burrowed).map(|z| (z.id, z.pos, z.hp)).collect();
+        let zombies: Vec<_> = h
+            .zombies
+            .iter()
+            .chain(&h.burrowed)
+            .map(|z| (z.id, z.pos, z.hp))
+            .collect();
         let bullets: Vec<_> = h.bullets.iter().map(|b| (b.pos, b.age)).collect();
-        let juice: Vec<_> = h.juice.particles.iter().map(|p| (p.pos, p.age)).chain(h.juice.corpses.iter().map(|c| (c.pos, c.age))).collect();
+        let juice: Vec<_> = h
+            .juice
+            .particles
+            .iter()
+            .map(|p| (p.pos, p.age))
+            .chain(h.juice.corpses.iter().map(|c| (c.pos, c.age)))
+            .collect();
         let thrown: Vec<_> = h.thrown.iter().map(|g| g.t).collect();
-        format!("{:?} {} {} {} {} {zombies:?} {bullets:?} {juice:?} {thrown:?}", h.me().pos, h.me().view_yaw, h.t, h.kills, h.xp)
+        format!(
+            "{:?} {} {} {} {} {zombies:?} {bullets:?} {juice:?} {thrown:?}",
+            h.me().pos,
+            h.me().view_yaw,
+            h.t,
+            h.kills,
+            h.xp
+        )
     }
 
     #[test]
@@ -229,10 +338,24 @@ mod tests {
         let (mut plain, mut drawn) = (Harvest::new(5), Harvest::new(5));
         let mut sounds = Vec::new();
         for i in 0..1500 {
-            let held = if i % 300 < 180 { Buttons::UP | Buttons::A } else { Buttons::UP };
-            let pressed = if i % 240 == 0 { Buttons::B } else { Buttons::NONE };
+            let held = if i % 300 < 180 {
+                Buttons::UP | Buttons::A
+            } else {
+                Buttons::UP
+            };
+            let pressed = if i % 240 == 0 {
+                Buttons::B
+            } else {
+                Buttons::NONE
+            };
             let touch = (i % 400 == 0).then_some([SCREEN_W / 2.0, SCREEN_H / 3.0]);
-            let input = Input { held, pressed, touch, touch_started: touch.is_some(), ..Default::default() };
+            let input = Input {
+                held,
+                pressed,
+                touch,
+                touch_started: touch.is_some(),
+                ..Default::default()
+            };
             plain.update(&input, STEP, &mut sounds);
             drawn.update(&input, STEP, &mut sounds);
             for alpha in [0.0, 0.4, 0.9] {
@@ -264,7 +387,10 @@ mod tests {
 
     #[test]
     fn a_jump_or_a_cut_draws_where_it_landed() {
-        assert_eq!(between([0.0, 0.0], [10.0 * TILE, 0.0], 0.5), [10.0 * TILE, 0.0]);
+        assert_eq!(
+            between([0.0, 0.0], [10.0 * TILE, 0.0], 0.5),
+            [10.0 * TILE, 0.0]
+        );
         assert_eq!(turn(0.0, PI, 0.5), PI);
     }
 
@@ -278,7 +404,12 @@ mod tests {
         let was = h.before.players[0].0;
         assert_ne!(now, was, "the player walked");
         let undo = h.blend(0.5).expect("a step to blend");
-        assert!((h.me().pos[0] - (was[0] + now[0]) / 2.0).abs() < 1e-3 && (h.me().pos[1] - (was[1] + now[1]) / 2.0).abs() < 1e-3, "{:?} between {was:?} and {now:?}", h.me().pos);
+        assert!(
+            (h.me().pos[0] - (was[0] + now[0]) / 2.0).abs() < 1e-3
+                && (h.me().pos[1] - (was[1] + now[1]) / 2.0).abs() < 1e-3,
+            "{:?} between {was:?} and {now:?}",
+            h.me().pos
+        );
         h.unblend(undo);
         assert_eq!((h.me().pos, h.me().view_yaw), (now, yaw));
     }
@@ -301,7 +432,15 @@ mod tests {
             walk(&mut h);
         }
         let mut sounds = Vec::new();
-        h.update(&Input { pressed: Buttons::START, held: Buttons::START, ..Default::default() }, STEP, &mut sounds);
+        h.update(
+            &Input {
+                pressed: Buttons::START,
+                held: Buttons::START,
+                ..Default::default()
+            },
+            STEP,
+            &mut sounds,
+        );
         h.update(&Input::default(), STEP, &mut sounds);
         let now = h.me().pos;
         for alpha in [0.0, 0.3, 0.9] {
@@ -315,7 +454,13 @@ mod tests {
     fn a_zombie_new_this_step_or_that_jumped_is_drawn_where_it_is() {
         let mut h = walking();
         walk(&mut h);
-        let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + 40.0, h.me().pos[1]], 10.0, 1.0, 0.0);
+        let mut z = Zombie::new(
+            Kind::common(),
+            [h.me().pos[0] + 40.0, h.me().pos[1]],
+            10.0,
+            1.0,
+            0.0,
+        );
         z.id = 900;
         h.zombies = vec![z];
         h.burrowed.clear();
@@ -341,11 +486,30 @@ mod tests {
         let mut h = walking();
         h.take_before();
         h.t += STEP;
-        let shot = |age: f32| Bullet { pos: [100.0, 100.0], vel: [60.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() };
+        let shot = |age: f32| Bullet {
+            pos: [100.0, 100.0],
+            vel: [60.0, 0.0],
+            damage: 1.0,
+            pierce: 0,
+            life: 1.0,
+            force: 0.0,
+            hit: Vec::new(),
+            look: None,
+            age,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        };
         h.bullets = vec![shot(STEP), shot(STEP * 4.0)];
         let undo = h.blend(0.5).expect("a step");
         assert_eq!(h.bullets[0].pos, [100.0, 100.0]);
-        assert!((h.bullets[1].pos[0] - 99.5).abs() < 1e-2, "{:?}", h.bullets[1].pos);
+        assert!(
+            (h.bullets[1].pos[0] - 99.5).abs() < 1e-2,
+            "{:?}",
+            h.bullets[1].pos
+        );
         h.unblend(undo);
         assert_eq!(h.bullets[1].pos, [100.0, 100.0]);
         assert_eq!(h.bullets[1].age, STEP * 4.0);

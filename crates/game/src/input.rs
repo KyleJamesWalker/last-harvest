@@ -160,7 +160,11 @@ mod tests {
     #[test]
     fn edges_fire_once() {
         let mut t = InputTracker::default();
-        let raw = RawInput { held: Buttons::A, touch: Some([1.0, 2.0]), ..Default::default() };
+        let raw = RawInput {
+            held: Buttons::A,
+            touch: Some([1.0, 2.0]),
+            ..Default::default()
+        };
         let first = t.frame(raw);
         assert!(first.pressed.contains(Buttons::A));
         assert!(first.touch_started);

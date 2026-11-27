@@ -40,7 +40,12 @@ impl Pads {
         for (_, pad) in gilrs.iter().flat_map(|g| g.gamepads()) {
             log!("gamepad: {} ({:?})", pad.name(), family(&pad));
         }
-        Self { gilrs, last: Vec::new(), motors: Motors::default(), effects: Vec::new() }
+        Self {
+            gilrs,
+            last: Vec::new(),
+            motors: Motors::default(),
+            effects: Vec::new(),
+        }
     }
 
     /// Runs each pad's motor, where it has one, while the player it plays as is `buzzing`, by seat from 0.
@@ -53,14 +58,33 @@ impl Pads {
     fn motor(&mut self, id: usize, on: bool) {
         let Some(g) = &mut self.gilrs else { return };
         if on && !self.effects.iter().any(|(e, _)| *e == id) {
-            let Some(pad) = g.gamepads().find(|(p, pad)| usize::from(*p) == id && pad.is_ff_supported()).map(|(p, _)| p) else { return };
-            let strong = BaseEffect { kind: BaseEffectType::Strong { magnitude: 48_000 }, scheduling: Replay { play_for: Ticks::from_ms(1000), ..Default::default() }, envelope: Default::default() };
-            match EffectBuilder::new().add_effect(strong).gamepads(&[pad]).finish(g) {
+            let Some(pad) = g
+                .gamepads()
+                .find(|(p, pad)| usize::from(*p) == id && pad.is_ff_supported())
+                .map(|(p, _)| p)
+            else {
+                return;
+            };
+            let strong = BaseEffect {
+                kind: BaseEffectType::Strong { magnitude: 48_000 },
+                scheduling: Replay {
+                    play_for: Ticks::from_ms(1000),
+                    ..Default::default()
+                },
+                envelope: Default::default(),
+            };
+            match EffectBuilder::new()
+                .add_effect(strong)
+                .gamepads(&[pad])
+                .finish(g)
+            {
                 Ok(effect) => self.effects.push((id, effect)),
                 Err(e) => return log!("rumble: {e}"),
             }
         }
-        let Some((_, effect)) = self.effects.iter().find(|(e, _)| *e == id) else { return };
+        let Some((_, effect)) = self.effects.iter().find(|(e, _)| *e == id) else {
+            return;
+        };
         if let Err(e) = if on { effect.play() } else { effect.stop() } {
             log!("rumble: {e}");
         }
@@ -70,16 +94,24 @@ impl Pads {
     /// frame.
     pub fn read(&mut self) -> (Vec<Pad>, Option<PadFamily>) {
         let mut used = None;
-        let Some(g) = &mut self.gilrs else { return (Vec::new(), used) };
+        let Some(g) = &mut self.gilrs else {
+            return (Vec::new(), used);
+        };
         while let Some(event) = g.next_event() {
             match event.event {
-                EventType::Connected => log!("gamepad: {} connected ({:?})", g.gamepad(event.id).name(), family(&g.gamepad(event.id))),
+                EventType::Connected => log!(
+                    "gamepad: {} connected ({:?})",
+                    g.gamepad(event.id).name(),
+                    family(&g.gamepad(event.id))
+                ),
                 EventType::Disconnected => {
                     log!("gamepad: {} disconnected", g.gamepad(event.id).name());
                     self.effects.retain(|(id, _)| *id != usize::from(event.id));
                 }
                 EventType::ButtonPressed(..) => used = Some(family(&g.gamepad(event.id))),
-                EventType::AxisChanged(_, v, _) if v.abs() >= STICK_DEAD => used = Some(family(&g.gamepad(event.id))),
+                EventType::AxisChanged(_, v, _) if v.abs() >= STICK_DEAD => {
+                    used = Some(family(&g.gamepad(event.id)))
+                }
                 _ => {}
             }
         }
@@ -87,10 +119,21 @@ impl Pads {
         let pads = g
             .gamepads()
             .map(|(id, pad)| {
-                let held = PAD.iter().filter(|(b, _)| pad.is_pressed(*b)).fold(Buttons::NONE, |held, &(_, to)| held | to);
+                let held = PAD
+                    .iter()
+                    .filter(|(b, _)| pad.is_pressed(*b))
+                    .fold(Buttons::NONE, |held, &(_, to)| held | to);
                 // gilrs reads up as positive; the game, like SDL and the browser, reads down as positive.
-                let stick = [live(pad.value(Axis::LeftStickX)), live(-pad.value(Axis::LeftStickY))];
-                Pad { id: usize::from(id), held, stick, look: live(pad.value(Axis::RightStickX)) }
+                let stick = [
+                    live(pad.value(Axis::LeftStickX)),
+                    live(-pad.value(Axis::LeftStickY)),
+                ];
+                Pad {
+                    id: usize::from(id),
+                    held,
+                    stick,
+                    look: live(pad.value(Axis::RightStickX)),
+                }
             })
             .collect::<Vec<Pad>>();
         self.last.clone_from(&pads);

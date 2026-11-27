@@ -16,7 +16,15 @@ pub struct Pipe<T> {
 
 impl<T> Pipe<T> {
     pub fn new(seed: u64, loss: f32, latency: u32, jitter: u32) -> Self {
-        Self { rng: Rng::new(seed), loss, latency, jitter, flying: Vec::new(), sent: 0, lost: 0 }
+        Self {
+            rng: Rng::new(seed),
+            loss,
+            latency,
+            jitter,
+            flying: Vec::new(),
+            sent: 0,
+            lost: 0,
+        }
     }
 
     pub fn send(&mut self, now: u32, item: T) {
@@ -25,8 +33,13 @@ impl<T> Pipe<T> {
             self.lost += 1;
             return;
         }
-        let late = if self.jitter > 0 { self.rng.below(self.jitter as usize + 1) as u32 } else { 0 };
-        self.flying.push((now + self.latency + late, self.sent, item));
+        let late = if self.jitter > 0 {
+            self.rng.below(self.jitter as usize + 1) as u32
+        } else {
+            0
+        };
+        self.flying
+            .push((now + self.latency + late, self.sent, item));
     }
 
     /// Everything due by `now`, in the order it lands.

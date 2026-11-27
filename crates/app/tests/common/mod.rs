@@ -21,7 +21,14 @@ pub fn temp_dir(name: &str) -> PathBuf {
 /// Points every folder the app reads beside the binary at an empty one, so nothing on this machine leaks in.
 pub fn isolate(name: &str) -> PathBuf {
     let dir = temp_dir(name);
-    for (var, sub) in [("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_MAPS", "maps"), ("LAST_HARVEST_PROPS", "props"), ("LAST_HARVEST_FARMS", "farms")] {
+    for (var, sub) in [
+        ("LAST_HARVEST_ENEMIES", "enemies"),
+        ("LAST_HARVEST_PLAYERS", "players"),
+        ("LAST_HARVEST_MODS", "mods"),
+        ("LAST_HARVEST_MAPS", "maps"),
+        ("LAST_HARVEST_PROPS", "props"),
+        ("LAST_HARVEST_FARMS", "farms"),
+    ] {
         std::fs::create_dir_all(dir.join(sub)).unwrap();
         // SAFETY: each test file is its own process, and this runs before anything else reads the environment.
         unsafe { std::env::set_var(var, dir.join(sub)) };
@@ -45,16 +52,31 @@ pub fn atlas() -> Vec<u8> {
 
 /// A base pack's files: its manifest, a right-sized atlas and the game's own seven tables.
 pub fn base() -> Files {
-    let mut files: Files = vec![(pack::MANIFEST.into(), pack::manifest().into_bytes()), (pack::ATLAS.into(), atlas())];
+    let mut files: Files = vec![
+        (pack::MANIFEST.into(), pack::manifest().into_bytes()),
+        (pack::ATLAS.into(), atlas()),
+    ];
     for table in last_harvest_game::TABLES {
-        files.push((table.into(), last_harvest_game::built_in_table(table).unwrap().as_bytes().to_vec()));
+        files.push((
+            table.into(),
+            last_harvest_game::built_in_table(table)
+                .unwrap()
+                .as_bytes()
+                .to_vec(),
+        ));
     }
     files
 }
 
 /// An enemy card of 16-pixel frames, opaque all over.
 pub fn enemy(id: &str, sound: &str) -> Vec<u8> {
-    card::write(&format!("[{id}]\nname {id}\nsound {sound}\n"), 48, 80, &[255; 48 * 80 * 4]).unwrap()
+    card::write(
+        &format!("[{id}]\nname {id}\nsound {sound}\n"),
+        48,
+        80,
+        &[255; 48 * 80 * 4],
+    )
+    .unwrap()
 }
 
 /// A prop of one 8-pixel frame.

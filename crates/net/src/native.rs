@@ -9,15 +9,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit};
 use webrtc::error::Error;
 use webrtc::peer_connection::{
-    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfiguration, RTCConfigurationBuilder,
-    RTCIceCandidateInit, RTCIceConnectionState, RTCIceServer, RTCIceTransportPolicy, RTCPeerConnectionIceEvent,
-    RTCPeerConnectionState, RTCSessionDescription, SettingEngine, SettingEngineBuilder,
+    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfiguration,
+    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceConnectionState, RTCIceServer,
+    RTCIceTransportPolicy, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
+    RTCSessionDescription, SettingEngine, SettingEngineBuilder,
 };
 
 /// How often an open signaling connection sends `KeepAlive`, which a relay that resumes peers echoes.
@@ -38,7 +39,10 @@ const RESTART_EVERY: Duration = Duration::from_secs(4);
 /// `LAST_HARVEST_NET_TEST_DROP_SIGNAL_MS` drops the signaling connection, without a close, that long after it opened. Each
 /// fires once.
 fn test_delay(name: &str) -> Option<Duration> {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).map(Duration::from_millis)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map(Duration::from_millis)
 }
 
 /// Test conditions for the unreliable channel: `LAST_HARVEST_NET_LAG_MS` delays each packet, `LAST_HARVEST_NET_LOSS` drops that
@@ -51,8 +55,17 @@ struct Impairment {
 
 impl Impairment {
     fn from_env() -> Impairment {
-        let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        Impairment { lag: Duration::from_millis(var("LAST_HARVEST_NET_LAG_MS")), loss_percent: var("LAST_HARVEST_NET_LOSS") as u32, seed: std::cell::Cell::new(0x9e37_79b9_7f4a_7c15) }
+        let var = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0)
+        };
+        Impairment {
+            lag: Duration::from_millis(var("LAST_HARVEST_NET_LAG_MS")),
+            loss_percent: var("LAST_HARVEST_NET_LOSS") as u32,
+            seed: std::cell::Cell::new(0x9e37_79b9_7f4a_7c15),
+        }
     }
 
     fn drop_next(&self) -> bool {
@@ -180,13 +193,26 @@ struct Context {
 }
 
 impl Context {
-    fn new(base: IceConfig, shared: SharedRef, outgoing: UnboundedSender<String>, gone: UnboundedSender<Gone>) -> Context {
+    fn new(
+        base: IceConfig,
+        shared: SharedRef,
+        outgoing: UnboundedSender<String>,
+        gone: UnboundedSender<Gone>,
+    ) -> Context {
         let ice = Arc::new(Mutex::new(rtc_configuration(&base)));
-        Context { base, ice, shared, outgoing, gone }
+        Context {
+            base,
+            ice,
+            shared,
+            outgoing,
+            gone,
+        }
     }
 
     fn signal(&self, receiver: PeerId, signal: Signal) {
-        let _ = self.outgoing.send(protocol::signal_message(receiver, &signal));
+        let _ = self
+            .outgoing
+            .send(protocol::signal_message(receiver, &signal));
     }
 }
 
@@ -212,7 +238,9 @@ fn rtc_configuration(ice: &IceConfig) -> RTCConfiguration {
 }
 
 fn setting_engine() -> SettingEngine {
-    SettingEngineBuilder::new().with_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), None).build()
+    SettingEngineBuilder::new()
+        .with_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), None)
+        .build()
 }
 
 /// The tokio thread's loop: the signaling connection, the peers it announces, and the game thread's commands.
@@ -300,8 +328,15 @@ async fn signaling(
             (Some(id), Some(token), Some(_)) => Some(protocol::resume_message(*id, token)),
             _ => None,
         };
-        let target = if resume.is_some() { protocol::resume_url(&url) } else { url.clone() };
-        let attempt = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(target.as_str()));
+        let target = if resume.is_some() {
+            protocol::resume_url(&url)
+        } else {
+            url.clone()
+        };
+        let attempt = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async(target.as_str()),
+        );
         let stream = tokio::select! {
             result = attempt => match result {
                 Ok(Ok((stream, _))) => Some(stream),
@@ -404,12 +439,17 @@ async fn on_event(context: &Context, peers: &mut HashMap<PeerId, Peer>, event: E
     match event {
         Event::IdAssigned(id) => lock(&context.shared).id = Some(id),
         Event::ResumeToken(_) => {}
-        Event::IceServers(servers) => *lock(&context.ice) = rtc_configuration(&crate::ice::with_relay_servers(&context.base, &servers)),
+        Event::IceServers(servers) => {
+            *lock(&context.ice) =
+                rtc_configuration(&crate::ice::with_relay_servers(&context.base, &servers))
+        }
         Event::NewPeer(id) => match new_peer(context, id, true).await {
             Some(peer) => {
                 peers.insert(id, peer);
             }
-            None => lock(&context.shared).changes.push((id, PeerState::Disconnected)),
+            None => lock(&context.shared)
+                .changes
+                .push((id, PeerState::Disconnected)),
         },
         Event::PeerLeft(id) => {
             let _ = context.gone.send((id, None));
@@ -417,7 +457,9 @@ async fn on_event(context: &Context, peers: &mut HashMap<PeerId, Peer>, event: E
         Event::Signal(sender, signal) => {
             if matches!(signal, Signal::Offer(_)) && !peers.contains_key(&sender) {
                 let Some(peer) = new_peer(context, sender, false).await else {
-                    lock(&context.shared).changes.push((sender, PeerState::Disconnected));
+                    lock(&context.shared)
+                        .changes
+                        .push((sender, PeerState::Disconnected));
                     return;
                 };
                 peers.insert(sender, peer);
@@ -442,7 +484,11 @@ struct Events {
 #[async_trait::async_trait]
 impl PeerConnectionEventHandler for Events {
     async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
-        let json = event.candidate.to_json().ok().and_then(|c| serde_json::to_string(&c).ok());
+        let json = event
+            .candidate
+            .to_json()
+            .ok()
+            .and_then(|c| serde_json::to_string(&c).ok());
         if let Some(json) = json {
             if self.remote_set.load(Ordering::Acquire) {
                 self.context.signal(self.id, Signal::IceCandidate(json));
@@ -457,7 +503,10 @@ impl PeerConnectionEventHandler for Events {
     }
 
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
-        if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
+        if matches!(
+            state,
+            RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
+        ) {
             let _ = self.context.gone.send((self.id, Some(self.serial)));
         }
     }
@@ -495,16 +544,24 @@ async fn new_peer(context: &Context, id: PeerId, offerer: bool) -> Option<Peer> 
     let connected = Arc::new(AtomicBool::new(false));
     let opened = Arc::new(AtomicUsize::new(0));
     let mut channels = Vec::new();
-    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))] {
+    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))]
+    {
         let init = RTCDataChannelInit {
             ordered,
             max_retransmits,
             negotiated: Some(index as u16),
             ..Default::default()
         };
-        let channel = connection.create_data_channel(&format!("matchbox_socket_{index}"), Some(init)).await.ok()?;
-        let (opened, connected, shared, gone) =
-            (opened.clone(), connected.clone(), context.shared.clone(), context.gone.clone());
+        let channel = connection
+            .create_data_channel(&format!("matchbox_socket_{index}"), Some(init))
+            .await
+            .ok()?;
+        let (opened, connected, shared, gone) = (
+            opened.clone(),
+            connected.clone(),
+            context.shared.clone(),
+            context.gone.clone(),
+        );
         let events = channel.clone();
         tokio::spawn(async move {
             while let Some(event) = events.poll().await {
@@ -516,8 +573,14 @@ async fn new_peer(context: &Context, id: PeerId, offerer: bool) -> Option<Peer> 
                         }
                     }
                     DataChannelEvent::OnMessage(message) => {
-                        if !lock(&shared).inbox.deliver(index, id, message.data.to_vec()) {
-                            eprintln!("[net] peer {:032x} overflowed the reliable inbox; dropping it", id.0);
+                        if !lock(&shared)
+                            .inbox
+                            .deliver(index, id, message.data.to_vec())
+                        {
+                            eprintln!(
+                                "[net] peer {:032x} overflowed the reliable inbox; dropping it",
+                                id.0
+                            );
                             let _ = gone.send((id, Some(serial)));
                         }
                     }
@@ -615,7 +678,9 @@ impl Handshake {
                 }
             };
             match self.apply(signal, &mut early_candidates).await {
-                Err(e) if self.connected.load(Ordering::Acquire) => eprintln!("[net] renegotiation with {:032x}: {e}", id.0),
+                Err(e) if self.connected.load(Ordering::Acquire) => {
+                    eprintln!("[net] renegotiation with {:032x}: {e}", id.0)
+                }
                 result => result?,
             }
         }
@@ -632,14 +697,20 @@ impl Handshake {
     }
 
     /// One offer, answer or ICE candidate from the peer.
-    async fn apply(&self, signal: Signal, early_candidates: &mut Vec<RTCIceCandidateInit>) -> Result<(), Error> {
+    async fn apply(
+        &self,
+        signal: Signal,
+        early_candidates: &mut Vec<RTCIceCandidateInit>,
+    ) -> Result<(), Error> {
         let (connection, context, id) = (&self.connection, &self.context, self.id);
         let remote = match signal {
             Signal::Offer(sdp) if !self.offerer => RTCSessionDescription::offer(sdp)?,
             Signal::Answer(sdp) if self.offerer => RTCSessionDescription::answer(sdp)?,
             Signal::IceCandidate(json) => {
                 match serde_json::from_str::<RTCIceCandidateInit>(&json) {
-                    Ok(candidate) if self.remote_set.load(Ordering::Acquire) => connection.add_ice_candidate(candidate).await?,
+                    Ok(candidate) if self.remote_set.load(Ordering::Acquire) => {
+                        connection.add_ice_candidate(candidate).await?
+                    }
                     Ok(candidate) => early_candidates.push(candidate),
                     Err(_) => {}
                 }
@@ -667,7 +738,12 @@ impl Handshake {
 
 /// Closes the connection to `id`, or only connection `serial` when given, and reports `Disconnected`, also for a
 /// handshake that never connected.
-async fn drop_peer(shared: &SharedRef, peers: &mut HashMap<PeerId, Peer>, id: PeerId, serial: Option<u64>) {
+async fn drop_peer(
+    shared: &SharedRef,
+    peers: &mut HashMap<PeerId, Peer>,
+    id: PeerId,
+    serial: Option<u64>,
+) {
     if serial.is_some_and(|s| peers.get(&id).is_some_and(|p| p.serial != s)) {
         return;
     }
@@ -684,7 +760,10 @@ mod tests {
 
     #[test]
     fn a_late_report_from_an_earlier_connection_keeps_the_current_one() {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         runtime.block_on(async {
             let shared = SharedRef::default();
             let (outgoing, _outgoing_rx) = unbounded_channel();
@@ -705,20 +784,62 @@ mod tests {
 
     #[test]
     fn the_relays_ice_servers_reach_new_connections() {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         runtime.block_on(async {
             let (outgoing, _outgoing_rx) = unbounded_channel();
             let (gone, _gone_rx) = unbounded_channel();
-            let stun = crate::IceServer { urls: vec!["stun:s.example.com:3478".into()], ..Default::default() };
-            let context = Context::new(IceConfig { servers: vec![stun], relay_only: false }, SharedRef::default(), outgoing, gone);
+            let stun = crate::IceServer {
+                urls: vec!["stun:s.example.com:3478".into()],
+                ..Default::default()
+            };
+            let context = Context::new(
+                IceConfig {
+                    servers: vec![stun],
+                    relay_only: false,
+                },
+                SharedRef::default(),
+                outgoing,
+                gone,
+            );
             let mut peers = HashMap::new();
-            let turn = |name: &str| crate::IceServer { urls: vec!["turn:t.example.com:3478".into()], username: format!("1:{name}"), credential: "x".into() };
-            on_event(&context, &mut peers, Event::IceServers(vec![turn("lh-old")])).await;
-            on_event(&context, &mut peers, Event::IceServers(vec![turn("lh-new")])).await;
+            let turn = |name: &str| crate::IceServer {
+                urls: vec!["turn:t.example.com:3478".into()],
+                username: format!("1:{name}"),
+                credential: "x".into(),
+            };
+            on_event(
+                &context,
+                &mut peers,
+                Event::IceServers(vec![turn("lh-old")]),
+            )
+            .await;
+            on_event(
+                &context,
+                &mut peers,
+                Event::IceServers(vec![turn("lh-new")]),
+            )
+            .await;
             let peer = new_peer(&context, PeerId(3), false).await.unwrap();
-            let servers = peer.connection.get_configuration().await.ice_servers().to_vec();
-            let users: Vec<_> = servers.iter().map(|s| (s.urls[0].as_str(), s.username.as_str())).collect();
-            assert_eq!(users, [("stun:s.example.com:3478", ""), ("turn:t.example.com:3478", "1:lh-new")]);
+            let servers = peer
+                .connection
+                .get_configuration()
+                .await
+                .ice_servers()
+                .to_vec();
+            let users: Vec<_> = servers
+                .iter()
+                .map(|s| (s.urls[0].as_str(), s.username.as_str()))
+                .collect();
+            assert_eq!(
+                users,
+                [
+                    ("stun:s.example.com:3478", ""),
+                    ("turn:t.example.com:3478", "1:lh-new")
+                ]
+            );
         });
     }
 
@@ -733,20 +854,28 @@ mod tests {
         .join();
         assert!(shared.is_poisoned());
         lock(&shared).id = Some(PeerId(7));
-        lock(&shared).changes.push((PeerId(7), PeerState::Connected));
+        lock(&shared)
+            .changes
+            .push((PeerId(7), PeerState::Connected));
         assert!(lock(&shared).inbox.deliver(RELIABLE, PeerId(7), vec![1]));
 
         let (commands, _rx) = unbounded_channel();
         let mut socket = Socket { shared, commands };
         assert_eq!(socket.id(), Some(PeerId(7)));
-        assert_eq!(socket.update_peers(), vec![(PeerId(7), PeerState::Connected)]);
+        assert_eq!(
+            socket.update_peers(),
+            vec![(PeerId(7), PeerState::Connected)]
+        );
         assert_eq!(socket.receive(RELIABLE), vec![(PeerId(7), vec![1])]);
         assert!(!socket.signaling_closed());
     }
 
     #[test]
     fn a_failed_handshake_reports_disconnected() {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         runtime.block_on(async {
             let shared = SharedRef::default();
             let (outgoing, _outgoing_rx) = unbounded_channel();
@@ -755,13 +884,18 @@ mod tests {
             let id = PeerId(9);
             let peer = new_peer(&context, id, true).await.unwrap();
             let serial = peer.serial;
-            peer.signals.send(Signal::Answer("not an SDP answer".into())).unwrap();
+            peer.signals
+                .send(Signal::Answer("not an SDP answer".into()))
+                .unwrap();
             let mut peers = HashMap::from([(id, peer)]);
 
             let failed = tokio::time::timeout(Duration::from_secs(10), gone_rx.recv()).await;
             assert_eq!(failed.unwrap(), Some((id, Some(serial))));
             drop_peer(&shared, &mut peers, id, None).await;
-            assert_eq!(std::mem::take(&mut lock(&shared).changes), vec![(id, PeerState::Disconnected)]);
+            assert_eq!(
+                std::mem::take(&mut lock(&shared).changes),
+                vec![(id, PeerState::Disconnected)]
+            );
         });
     }
 }
