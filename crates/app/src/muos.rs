@@ -115,6 +115,9 @@ fn main() {
 
 fn run() -> Result<(), String> {
     log!("last-harvest {VERSION} on muOS");
+    if let Some(home) = last_harvest::home() {
+        last_harvest::metrics::install_crash_hook(home);
+    }
     let range = pak::range_setup();
     let sounds = pak::load_without(&persist::mods_off())?;
     let sdl = sdl2::init()?;
@@ -143,7 +146,7 @@ fn run() -> Result<(), String> {
     sdl.mouse().show_cursor(false);
 
     let (mut saver, save) = persist::Saver::load();
-    let mut platform = last_harvest::platform::backend();
+    let mut platform = last_harvest::platform::backend(last_harvest::home());
     let mut game = Game::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -198,7 +201,9 @@ fn run() -> Result<(), String> {
     loop {
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => return finish(&mut saver, &mut game, motor.as_ref()),
+                Event::Quit { .. } => {
+                    return finish(&mut saver, &mut game, &mut platform, motor.as_ref());
+                }
                 Event::ControllerDeviceAdded { which, .. } => match controllers.open(which) {
                     Ok(pad) => {
                         log!("pad: {}", pad.name());
@@ -280,7 +285,7 @@ fn run() -> Result<(), String> {
             0.0
         };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
-            return finish(&mut saver, &mut game, motor.as_ref());
+            return finish(&mut saver, &mut game, &mut platform, motor.as_ref());
         }
         let input = tracker.frame(RawInput {
             held,
@@ -295,7 +300,7 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
-        last_harvest::platform::serve(&mut game, platform.as_mut());
+        last_harvest::platform::serve(&mut game, &mut platform, dt);
         persist::keep_replays(game.take_replays());
         if game.take_replays_request() {
             game.set_saved_replays(persist::saved_replays());
@@ -398,6 +403,7 @@ fn state(states: &mut Vec<PadState>, which: u32) -> &mut PadState {
 fn finish(
     saver: &mut persist::Saver,
     game: &mut Game,
+    platform: &mut last_harvest::platform::Hooks,
     motor: Option<&Motor>,
 ) -> Result<(), String> {
     if let Some(m) = motor {
@@ -405,6 +411,7 @@ fn finish(
     }
     saver.update(game.save(), true);
     persist::keep_replays(game.end_replays());
+    platform.exiting();
     log!("quit");
     Ok(())
 }
