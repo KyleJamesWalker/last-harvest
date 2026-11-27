@@ -144,6 +144,7 @@ fn run() -> Result<(), String> {
 
     let (mut saver, save) = persist::Saver::load();
     let mut platform = last_harvest::platform::backend();
+    saver.fetch(platform.as_mut());
     let mut game = Game::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -198,7 +199,9 @@ fn run() -> Result<(), String> {
     loop {
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => return finish(&mut saver, &mut game, motor.as_ref()),
+                Event::Quit { .. } => {
+                    return finish(&mut saver, &mut game, platform.as_mut(), motor.as_ref());
+                }
                 Event::ControllerDeviceAdded { which, .. } => match controllers.open(which) {
                     Ok(pad) => {
                         log!("pad: {}", pad.name());
@@ -280,7 +283,7 @@ fn run() -> Result<(), String> {
             0.0
         };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
-            return finish(&mut saver, &mut game, motor.as_ref());
+            return finish(&mut saver, &mut game, platform.as_mut(), motor.as_ref());
         }
         let input = tracker.frame(RawInput {
             held,
@@ -295,6 +298,7 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
+        saver.sync(&mut game, platform.as_mut());
         last_harvest::platform::serve(&mut game, platform.as_mut());
         persist::keep_replays(game.take_replays());
         if game.take_replays_request() {
@@ -351,7 +355,7 @@ fn run() -> Result<(), String> {
             }
         }
         window.gl_swap_window();
-        saver.update(game.save(), false);
+        saver.update(game.save(), false, platform.as_mut());
     }
 }
 
@@ -398,12 +402,13 @@ fn state(states: &mut Vec<PadState>, which: u32) -> &mut PadState {
 fn finish(
     saver: &mut persist::Saver,
     game: &mut Game,
+    platform: &mut dyn last_harvest::platform::Platform,
     motor: Option<&Motor>,
 ) -> Result<(), String> {
     if let Some(m) = motor {
         m.set(false);
     }
-    saver.update(game.save(), true);
+    saver.update(game.save(), true, platform);
     persist::keep_replays(game.end_replays());
     log!("quit");
     Ok(())
