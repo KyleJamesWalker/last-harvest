@@ -74,7 +74,7 @@ pub use harvest::{SwingShow, swing_shown};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use keys::key_button;
 pub use pad::PadFamily;
-pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
+pub use save::{ModsOff, Records, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Ask, Battery, Outputs, System};
 
@@ -436,6 +436,13 @@ impl Game {
 
     pub fn save(&self) -> Save {
         self.save
+    }
+
+    /// Folds another copy of the save, such as the cloud's, into this one's progress; this device's settings stay.
+    pub fn merge_save(&mut self, other: &Save) {
+        self.save = self.save.with_progress_of(other);
+        self.how_to_due &= !self.save.how_to_seen;
+        self.ask_achievements();
     }
 
     pub fn unlock_everything(&mut self) {
