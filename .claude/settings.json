@@ -8,6 +8,7 @@
       "Bash(cargo run *)",
       "Bash(cargo tree *)",
       "Bash(cargo metadata *)",
+      "Bash(cargo fmt *)",
       "Bash(cargo deny check *)",
       "Bash(cargo zigbuild *)",
       "Bash(scripts/*)",
@@ -20,10 +21,6 @@
       "PowerShell(cargo clippy *)",
       "PowerShell(cargo test *)",
       "PowerShell(cargo run *)"
-    ],
-    "deny": [
-      "Bash(cargo fmt*)",
-      "PowerShell(cargo fmt*)"
     ]
   }
 }

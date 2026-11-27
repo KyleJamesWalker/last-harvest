@@ -63,11 +63,10 @@ LAST_HARVEST_SPLIT=2 LAST_HARVEST_BOTS=1 LAST_HARVEST_WINDOW=1280x720 LAST_HARVE
 Run these before every commit. CI runs the same checks with `-D warnings`.
 
 ```sh
+cargo fmt --all                          # CI runs cargo fmt --all --check
 cargo clippy --workspace --all-targets   # zero warnings
 cargo test --workspace
 ```
-
-The code is not rustfmt-formatted. Do not run `cargo fmt`.
 
 | Check | When to run it |
 |---|---|
