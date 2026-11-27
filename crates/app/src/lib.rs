@@ -10,6 +10,7 @@ pub mod log;
 mod loops;
 pub mod online;
 pub mod pak;
+pub mod platform;
 pub mod replays;
 pub mod samples;
 #[cfg(not(target_arch = "wasm32"))]

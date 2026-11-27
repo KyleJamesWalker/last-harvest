@@ -34,6 +34,7 @@ last-harvest-render.workspace = true
 lewton = "0.10"
 last-harvest-pack = { path = "../pack", default-features = false, features = ["pak"] }
 last-harvest-net = { path = "../net" }
+last-harvest-platform = { path = "../platform" }
 sha2 = "0.10"
 
 [build-dependencies]

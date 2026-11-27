@@ -1687,6 +1687,7 @@ dependencies = [
  "last-harvest-game",
  "last-harvest-net",
  "last-harvest-pack",
+ "last-harvest-platform",
  "last-harvest-relay",
  "last-harvest-render",
  "lewton",
