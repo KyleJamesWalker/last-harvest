@@ -535,6 +535,12 @@ impl Game {
         pad::set_by_name(on);
     }
 
+    /// The platform's own labels for the pad buttons the shell reads as each game button, before the Controls page's
+    /// remap. Hints use them over the pad family's, never over the keyboard's; a button left out keeps its own.
+    pub fn set_button_labels<'a>(&mut self, labels: impl IntoIterator<Item = (Buttons, &'a str)>) {
+        pad::set_platform_labels(labels);
+    }
+
     /// The platform has a keyboard, before any key is pressed.
     pub fn set_keyboard(&mut self, on: bool) {
         self.keyboard = on;

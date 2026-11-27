@@ -145,7 +145,7 @@ impl Harvest {
             };
             c.rect(x, y, w, h, fill);
             c.label(
-                pad,
+                &*pad,
                 x + 16.0,
                 y + 10.0,
                 26.0,

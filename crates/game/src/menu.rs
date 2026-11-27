@@ -1120,13 +1120,13 @@ impl Game {
             );
             let moved = self.save.controls.physical(game) != game;
             let shown = if armed {
-                "?"
+                pad::Label::Own("?")
             } else {
                 pad::label_as(family, game)
             };
             fit_label(
                 c,
-                shown,
+                &shown,
                 pad_x,
                 mid - 20.0,
                 38.0,
@@ -1137,7 +1137,7 @@ impl Game {
             if self.keyboard {
                 fit_label(
                     c,
-                    pad::label_as(PadFamily::Keyboard, game),
+                    &pad::label_as(PadFamily::Keyboard, game),
                     key_x,
                     mid - 20.0,
                     38.0,
