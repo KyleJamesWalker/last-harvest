@@ -123,8 +123,8 @@ fn flow() -> Vec<Line> {
     }
     out.push(Line::Section("Open-source software".into()));
     out.extend(body(
-        "Last Harvest is built with these Rust crates, under their own licences. \
-         Their full texts are in THIRD_PARTY_LICENSES.txt.",
+        "Last Harvest is built with these Rust crates, each under the license named above it. \
+         The desktop, RG DS and web downloads carry the full texts in THIRD_PARTY_LICENSES.txt.",
     ));
     for (licence, names) in crates() {
         out.push(Line::Head(licence.to_string()));
