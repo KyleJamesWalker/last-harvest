@@ -42,6 +42,14 @@ cargo run -p sprite-editor      # the sprite editor; see sprite-editor.md
 
 The default `embed` feature builds the game data into the binary. The binary still reads a pack when one is present. A build with `--no-default-features` reads its data only from `data/game_data.pak` beside the binary. If that pack is missing or built for a different atlas, the game starts with no sprites. The title then names the release whose pack to copy, and the log says why.
 
+The `store` feature, for store builds, builds `game_data.pak` into the binary and turns off every download from GitHub releases. Build the pack first; the binary reads it from `target/game_data.pak`, or from `LAST_HARVEST_STORE_PAK` at build time. On Android, the APK's `game_data.pak` asset is the pack, so build the APK without `LAST_HARVEST_NO_PAK`. The feature never builds for the web.
+
+```sh
+cargo run -p last-harvest-pack
+cargo build --release -p last-harvest --no-default-features --features store
+LAST_HARVEST_FEATURES=store scripts/android.sh
+```
+
 `game_data.pak` is a ZIP of the sprite atlas, sounds, font and data tables. Its `manifest.toml` names its atlas and its release: `LAST_HARVEST_VERSION` at the packer's build time, or `dev`. The binary reports its own release, or `dev-<commit>`, with `--version`, at the top of `log.txt`, and on the Stats page.
 
 On a desktop, `LAST_HARVEST_WINDOWS=2` opens one window per screen, as on the device. The mouse is then a finger on the bottom window.
@@ -232,6 +240,8 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | Variable | Effect |
 |---|---|
 | `LAST_HARVEST_VERSION` | At build time, the release that the binary and `game_data.pak` report. |
+| `LAST_HARVEST_STORE_PAK` | At build time, the `game_data.pak` a `store` build carries, relative to the workspace. Default: `target/game_data.pak`. |
+| `LAST_HARVEST_FEATURES` | Cargo features `scripts/android.sh` adds, such as `store`. |
 | `LAST_HARVEST_NO_PAK` | `1`: `scripts/android.sh` leaves `game_data.pak` out of the APK, which then fetches the release's pack on first run. Release builds set it. |
 | `LAST_HARVEST_SPRITES` | Where the sprite editor saves. Default: `assets/private/sprites`. |
 | `LAST_HARVEST_CATALOG` | The sprite catalog the native sprite editor writes stands to. Default: `crates/game/art.txt`. |
