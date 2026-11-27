@@ -43,7 +43,7 @@ PORTS/last-harvest/
   .update/                     the launcher's downloads in progress
 ```
 
-The game writes `save.txt` through a synced temp file and a rename, one second after the last change. Each panic appends a backtrace to `crash.log`.
+The game writes `save.txt` through a synced temp file and a rename, one second after the last change. Each panic appends a backtrace to `crash.log`. In a build whose metrics backend sends play stats, and only once the player shares them, `metrics.txt` holds the events not yet sent and `crashes/` the crash reports for the next start to send.
 
 ## Debug mode
 
