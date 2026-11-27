@@ -4,7 +4,7 @@ This page covers setup, the build, the tests and the checks a pull request must 
 
 ## Requirements
 
-- Rust 1.94 or later.
+- Rust 1.94.0, pinned in `rust-toolchain.toml`; rustup installs it, with clippy and rustfmt, on the first `cargo` command.
 - The tileset in `assets/private/`. See [Setup](#setup).
 - For the device build: the `aarch64-unknown-linux-gnu` target, [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) and [Zig](https://ziglang.org).
 - For the web builds: the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the version in `Cargo.lock`. The web scripts stop with the install command when the version differs.
