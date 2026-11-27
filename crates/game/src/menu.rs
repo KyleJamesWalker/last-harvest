@@ -261,6 +261,7 @@ impl Game {
             }
             Page::Stats | Page::Credits if back => {
                 self.page = Page::Main;
+                self.credits_page = 0;
                 self.sounds.push(Sfx::Tick(0));
             }
             Page::Stats
@@ -299,7 +300,8 @@ impl Game {
                     self.sounds.push(Sfx::Tick(self.history_page as u8 * 3));
                 }
             }
-            Page::Stats | Page::Credits => {}
+            Page::Stats => {}
+            Page::Credits => self.credits_input(input, tapped),
             Page::Online => self.online_page(input, tapped),
             Page::Join => self.join_page(input, tapped),
             Page::Lobby => self.lobby_page(input, tapped),
@@ -705,7 +707,7 @@ impl Game {
             Page::Mods => self.draw_mods(c),
             Page::Stats => self.draw_stats(c),
             Page::History => self.draw_history(c),
-            Page::Credits => draw_credits(c),
+            Page::Credits => self.draw_credits(c),
             Page::HowTo => self.draw_how_to(c),
             Page::Online => self.draw_online(c),
             Page::Join => self.draw_join(c),
@@ -1964,22 +1966,6 @@ impl Game {
     }
 }
 
-fn draw_credits(c: &mut Canvas) {
-    let credits = [
-        ("Programming", "Kyle James Walker"),
-        ("Zombie Apocalypse Tileset", "Ittai Manero"),
-        ("Template", "twinbit-ds"),
-        ("Atkinson Hyperlegible font", "Braille Institute of America"),
-    ];
-    c.label("Credits", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
-    for (i, (role, name)) in credits.iter().enumerate() {
-        let y = 116.0 + i as f32 * 132.0;
-        c.label(*role, SCREEN_W / 2.0, y, 30.0, DIM, Align::Center);
-        c.label(*name, SCREEN_W / 2.0, y + 40.0, 46.0, WHITE, Align::Center);
-    }
-    back_button(c);
-}
-
 /// Draws `text` within `room` pixels: smaller, down to two thirds of `size`, then cut short, keeping its middle where
 /// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
 #[allow(clippy::too_many_arguments)]
@@ -2065,7 +2051,7 @@ pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f
     (text, fits)
 }
 
-fn back_button(c: &mut Canvas) {
+pub(crate) fn back_button(c: &mut Canvas) {
     let [x, y, w, h] = BACK;
     c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
     c.label(

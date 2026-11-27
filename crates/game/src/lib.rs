@@ -5,6 +5,7 @@
 pub mod alpha;
 pub mod art;
 mod controls;
+mod credits;
 pub mod data;
 mod difficulty;
 mod draw;
@@ -216,6 +217,7 @@ pub struct Game {
     row: usize,
     /// The History page on show.
     history_page: usize,
+    credits_page: usize,
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
@@ -322,6 +324,7 @@ impl Game {
             page: Page::Main,
             row: 0,
             history_page: 0,
+            credits_page: 0,
             setting: 0,
             enemy: 0,
             mod_row: 0,
