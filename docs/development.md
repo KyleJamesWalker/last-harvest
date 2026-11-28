@@ -28,7 +28,6 @@ scripts/assets.sh <path to the tileset zip>   # extracts to assets/private/zombi
 For the device build, also run:
 
 ```sh
-rustup target add aarch64-unknown-linux-gnu
 scripts/sysroot.sh   # copies the device's libasound into .sysroot/ for linking
 ```
 
