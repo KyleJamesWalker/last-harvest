@@ -1088,7 +1088,17 @@ pub fn scene(h: &Harvest) -> CardScene {
     let walked = if walk.is_some() { CAMERA_BACK } else { 0.0 };
     let around = focus.or(walk).unwrap_or(h.eye().pos);
     let p = world(around);
-    let [sx, sy, roll] = j.shake_offset();
+    let comfort = crate::comfort::get();
+    let (kick, punch) = if comfort.shake {
+        (j.kick, j.punch)
+    } else {
+        (0.0, 0.0)
+    };
+    let [sx, sy, roll] = if comfort.shake {
+        j.shake_offset()
+    } else {
+        [0.0; 3]
+    };
     let roll = roll + h.lean * 0.035;
     let bob = if h.eye().walk > 0.0 {
         (h.eye().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0)
@@ -1111,7 +1121,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let orbiting = focus.is_some() || h.orbit.is_some_and(|o| o != [0.0; 2]);
     let looking = shown
         .or(orbiting.then_some(p + Vec3::Y * 0.6))
-        .unwrap_or(p + forward * (4.0 + walked) + Vec3::Y * (0.7 + j.kick * 6.0));
+        .unwrap_or(p + forward * (4.0 + walked) + Vec3::Y * (0.7 + kick * 6.0));
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
     let view = glam::camera::rh::view::look_at_mat4(
         eye,
@@ -1119,7 +1129,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         Vec3::Y * roll.cos() + right * roll.sin(),
     );
     let proj = glam::camera::rh::proj::opengl::perspective(
-        ((66.0 + j.punch) / h.zoom).to_radians(),
+        ((66.0 + punch) / h.zoom).to_radians(),
         SCREEN_W / SCREEN_H,
         0.3,
         VIEW_RADIUS + 6.0,
@@ -1873,6 +1883,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .juice
         .flashes
         .iter()
+        .filter(|_| comfort.flashes)
         .map(|f| Flash {
             pos: world(f.pos) + Vec3::Y * (f.z * PX),
             color: f.color.map(|c| c * f.strength()),
@@ -1887,7 +1898,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         _ => 0.0,
     };
     // The lantern gutters when you're nearly done for.
-    let gutter = if health < 0.3 {
+    let gutter = if health < 0.3 && comfort.flashes {
         0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs()
     } else {
         0.0
@@ -1898,7 +1909,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam
     } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
-    let hurt = h.juice.hurt / 0.35;
+    let hurt = if comfort.flashes {
+        h.juice.hurt / 0.35
+    } else {
+        0.0
+    };
     let light_color = [
         sky.lantern[0],
         sky.lantern[1] * (1.0 - 0.4 * hurt),
@@ -1952,6 +1967,32 @@ mod tests {
             [0.0, 0.0],
             "a tile fills its cell"
         );
+    }
+
+    #[test]
+    fn with_shake_off_the_camera_holds_still_and_with_flashes_off_nothing_lights_up() {
+        use crate::comfort::{self, Comfort};
+        let still = scene(&Harvest::calm(1));
+        let mut h = Harvest::calm(1);
+        h.juice.clock = 0.37;
+        h.juice.shake(1.0);
+        (h.juice.kick, h.juice.punch, h.juice.hurt) = (0.2, 8.0, 0.35);
+        h.juice.flash(h.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
+        comfort::set(Comfort::default());
+        let felt = scene(&h);
+        assert_ne!(felt.view_proj, still.view_proj, "on by default");
+        assert!(!felt.flashes.is_empty() && felt.light_color != still.light_color);
+        comfort::set(Comfort {
+            shake: false,
+            flashes: false,
+            ..Comfort::default()
+        });
+        let calm = scene(&h);
+        comfort::set(Comfort::default());
+        assert_eq!(calm.view_proj, still.view_proj);
+        assert!(calm.flashes.is_empty());
+        assert_eq!(calm.light_color, still.light_color, "no red pulse on a hit");
+        assert!(h.juice.trauma > 0.0, "the run's own state is left alone");
     }
 
     #[test]

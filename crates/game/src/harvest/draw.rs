@@ -229,7 +229,11 @@ impl Harvest {
         let health = self.eye().hp / self.eye().kit.max_hp();
         let low = ((0.35 - health) / 0.35).clamp(0.0, 1.0);
         let beat = (1.0 - (self.heartbeat.max(0.0) / (0.5 + health * 2.0)) * 4.0).max(0.0);
-        let hit = self.juice.hurt / 0.35;
+        let hit = if crate::comfort::get().flashes {
+            self.juice.hurt / 0.35
+        } else {
+            0.0
+        };
         let a = (low * (0.3 + 0.4 * beat) + hit * 0.5).min(0.9);
         if hit > 0.0 {
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.8, 0.05, 0.05, hit * 0.18]);

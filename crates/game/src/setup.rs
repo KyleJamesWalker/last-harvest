@@ -3,7 +3,7 @@
 use crate::draw::{Align, Canvas};
 use crate::fmath as fm;
 use crate::input::{Buttons, Input};
-use crate::menu::{Page, fit_label, fitted, inside, wrap_label};
+use crate::menu::{Page, cut_label, fit_label, inside, wrap_label};
 use crate::pad;
 use crate::save::LookId;
 use crate::{DIM, Game, HOT, SCREEN_W, Sfx, WHITE};
@@ -487,11 +487,13 @@ impl Game {
                     Align::Left,
                 );
             } else {
-                c.label(
-                    fitted(&p.about, 24.0, room, 24.0).0,
+                cut_label(
+                    c,
+                    &p.about,
                     text_x,
                     y + 10.0 + name,
                     24.0,
+                    room,
                     DIM,
                     Align::Left,
                 );

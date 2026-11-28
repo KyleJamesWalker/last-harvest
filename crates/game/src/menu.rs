@@ -56,6 +56,9 @@ pub(crate) enum Setting {
     CornerMap,
     Touch,
     Grenades,
+    Shake,
+    Flashes,
+    TextSize,
     Controls,
     Enemies,
     Mods,
@@ -66,7 +69,7 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 17] = [
+    const ALL: [Setting; 20] = [
         Setting::TopBrightness,
         Setting::BottomBrightness,
         Setting::Volume,
@@ -77,6 +80,9 @@ impl Setting {
         Setting::CornerMap,
         Setting::Touch,
         Setting::Grenades,
+        Setting::Shake,
+        Setting::Flashes,
+        Setting::TextSize,
         Setting::Controls,
         Setting::Enemies,
         Setting::Mods,
@@ -98,6 +104,9 @@ impl Setting {
             Setting::CornerMap => "Corner map",
             Setting::Touch => "Touch controls",
             Setting::Grenades => "Grenades",
+            Setting::Shake => "Screen shake",
+            Setting::Flashes => "Flashes",
+            Setting::TextSize => "Text size",
             Setting::Controls => "Controls",
             Setting::Enemies => "Enemies",
             Setting::Mods => "Mod packs",
@@ -119,6 +128,8 @@ const MISSING_Y: f32 = 560.0;
 /// The settings rows; a run's settings leave out Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
+/// Settings rows shown at once; the list scrolls past that.
+const SET_ROWS: usize = 10;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 8;
 const MOD_ROWS: usize = 7;
@@ -135,6 +146,9 @@ pub(crate) const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
 const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
 /// Stats' button to the saved replays, left of Back.
 const REPLAYS: [f32; 4] = [22.0, 660.0, 300.0, 76.0];
+/// Beside Back on a list longer than its window: a page up and a page down, for touch.
+pub(crate) const PAGE_UP: [f32; 4] = REPLAYS;
+pub(crate) const PAGE_DOWN: [f32; 4] = HISTORY;
 const REPLAY_TOP: f32 = 96.0;
 const REPLAY_H: f32 = 54.0;
 /// Runs on each History page.
@@ -192,6 +206,46 @@ pub(crate) fn setting_row(i: usize, n: usize) -> [f32; 4] {
 #[cfg(test)]
 pub(crate) fn control_row(row: usize) -> [f32; 4] {
     setting_row(row, CONTROL_ROWS)
+}
+
+/// The first row shown of a list `window` rows tall with row `sel` chosen.
+fn first_row(sel: usize, window: usize) -> usize {
+    sel.saturating_sub(window - 1)
+}
+
+/// The row of `n` that a tap at `p` on the paging buttons chooses: a window up or down from `sel`.
+fn paged(p: [f32; 2], sel: usize, n: usize, window: usize) -> Option<usize> {
+    if n <= window {
+        None
+    } else if inside(p, PAGE_UP) && sel > 0 {
+        Some(sel.saturating_sub(window))
+    } else if inside(p, PAGE_DOWN) && sel + 1 < n {
+        Some((sel + window).min(n - 1))
+    } else {
+        None
+    }
+}
+
+/// The paging buttons beside Back, on a list of `n` longer than its `window`.
+fn draw_paging(c: &mut Canvas, sel: usize, n: usize, window: usize) {
+    if n <= window {
+        return;
+    }
+    for (rect, text, live) in [
+        (PAGE_UP, "^   Up", sel > 0),
+        (PAGE_DOWN, "Down   v", sel + 1 < n),
+    ] {
+        let [x, y, w, h] = rect;
+        c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
+        c.label(
+            text,
+            x + w / 2.0,
+            y + h / 2.0 - 20.0,
+            36.0,
+            if live { WHITE } else { DIM },
+            Align::Center,
+        );
+    }
 }
 
 /// The Controls page, open over the Settings list: the row chosen, the seconds left to press the button that row
@@ -463,11 +517,12 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
             return false;
         }
-        if let Some(i) = input
-            .hover
-            .and_then(|p| (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))))
-            .filter(|&i| i != self.setting)
-        {
+        let (n, shown) = (list.len(), list.len().min(SET_ROWS));
+        let first = first_row(self.setting, SET_ROWS);
+        let row_at = |p: [f32; 2]| {
+            (first..n.min(first + SET_ROWS)).find(|&i| inside(p, setting_row(i - first, shown)))
+        };
+        if let Some(i) = input.hover.and_then(row_at).filter(|&i| i != self.setting) {
             self.setting = i;
             self.reset_armed = 0.0;
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
@@ -476,7 +531,13 @@ impl Game {
             - input.pressed.contains(Buttons::LEFT) as i32;
         let mut press = input.pressed.contains(Buttons::A);
         if let Some(p) = tapped {
-            let Some(i) = (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))) else {
+            if let Some(i) = paged(p, self.setting, n, SET_ROWS) {
+                self.setting = i;
+                self.reset_armed = 0.0;
+                self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
+                return false;
+            }
+            let Some(i) = row_at(p) else {
                 return false;
             };
             self.setting = i;
@@ -521,6 +582,11 @@ impl Game {
             }
             Setting::Grenades if by != 0 || press => {
                 self.save.touch_grenades = !self.save.touch_grenades
+            }
+            Setting::Shake if by != 0 || press => self.save.shake = !self.save.shake,
+            Setting::Flashes if by != 0 || press => self.save.flashes = !self.save.flashes,
+            Setting::TextSize if by != 0 || press => {
+                self.save.text = self.save.text.step(if by == 0 { 1 } else { by })
             }
             Setting::Controls if by > 0 || press => {
                 self.rebind = Some(Rebind::default());
@@ -602,7 +668,12 @@ impl Game {
             self.sounds.push(Sfx::Tick(r.row as u8 * 2));
             return false;
         }
-        let first = r.row.saturating_sub(CONTROL_ROWS - 1);
+        if let Some(i) = tapped.and_then(|p| paged(p, r.row, rows, CONTROL_ROWS)) {
+            r.row = i;
+            self.sounds.push(Sfx::Tick(r.row as u8 * 2));
+            return false;
+        }
+        let first = first_row(r.row, CONTROL_ROWS);
         let chosen = match tapped {
             Some(p) => (first..rows.min(first + CONTROL_ROWS))
                 .find(|&i| inside(p, setting_row(i - first, CONTROL_ROWS))),
@@ -641,7 +712,12 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
             return false;
         }
-        let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
+        if let Some(i) = tapped.and_then(|p| paged(p, self.enemy, count, ENEMY_ROWS)) {
+            self.enemy = i;
+            self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
+            return false;
+        }
+        let first = first_row(self.enemy, ENEMY_ROWS);
         if let Some(i) = input
             .hover
             .and_then(|p| {
@@ -698,7 +774,12 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
             return false;
         }
-        let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
+        if let Some(i) = tapped.and_then(|p| paged(p, self.mod_row, count, MOD_ROWS)) {
+            self.mod_row = i;
+            self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
+            return false;
+        }
+        let first = first_row(self.mod_row, MOD_ROWS);
         if let Some(i) = input
             .hover
             .and_then(|p| {
@@ -849,8 +930,10 @@ impl Game {
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Settings", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let list = self.settings_list();
-        for (i, &s) in list.iter().enumerate() {
-            let [x, y, w, h] = setting_row(i, list.len());
+        let first = first_row(self.setting, SET_ROWS);
+        let shown = list.len().min(SET_ROWS);
+        for (i, &s) in list.iter().enumerate().skip(first).take(SET_ROWS) {
+            let [x, y, w, h] = setting_row(i - first, shown);
             let on = i == self.setting;
             c.rect(
                 x,
@@ -890,11 +973,18 @@ impl Game {
                 Setting::BottomBrightness => (self.save.brightness[1], 1),
                 Setting::Volume => (self.save.volume, 0),
                 Setting::Mouse => (self.save.mouse, 1),
-                Setting::Rumble | Setting::Fps | Setting::CornerMap | Setting::Share => {
+                Setting::Rumble
+                | Setting::Fps
+                | Setting::CornerMap
+                | Setting::Share
+                | Setting::Shake
+                | Setting::Flashes => {
                     let v = match s {
                         Setting::Rumble => self.save.rumble,
                         Setting::Fps => self.save.fps,
                         Setting::Share => self.save.metrics == Consent::Yes,
+                        Setting::Shake => self.save.shake,
+                        Setting::Flashes => self.save.flashes,
                         _ => self.save.corner_map,
                     };
                     c.label(
@@ -907,11 +997,12 @@ impl Game {
                     );
                     continue;
                 }
-                Setting::Screens | Setting::Touch | Setting::Grenades => {
+                Setting::Screens | Setting::Touch | Setting::Grenades | Setting::TextSize => {
                     let label = match s {
                         Setting::Screens if self.save.one_screen => "One",
                         Setting::Screens => "Two",
                         Setting::Touch => self.save.touch.name(),
+                        Setting::TextSize => self.save.text.name(),
                         _ if self.save.touch_grenades => "Touch",
                         _ => "Pad",
                     };
@@ -1061,6 +1152,7 @@ impl Game {
                 );
             }
         }
+        draw_paging(c, self.setting, list.len(), SET_ROWS);
         back_button(c);
     }
 
@@ -1106,7 +1198,8 @@ impl Game {
         );
         let pulse = 0.5 + 0.5 * fm::sin(self.clock * 6.0).abs();
         let rows = ACTIONS.len() + 1;
-        let first = r.row.saturating_sub(CONTROL_ROWS - 1);
+        let first = first_row(r.row, CONTROL_ROWS);
+        draw_paging(c, r.row, rows, CONTROL_ROWS);
         for (row, i) in (first..rows.min(first + CONTROL_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, CONTROL_ROWS);
             let sel = i == r.row;
@@ -1196,7 +1289,8 @@ impl Game {
         let r = roster();
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Enemies", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
-        let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
+        let first = first_row(self.enemy, ENEMY_ROWS);
+        draw_paging(c, self.enemy, r.enemies.len(), ENEMY_ROWS);
         for (row, i) in (first..r.enemies.len().min(first + ENEMY_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, ENEMY_ROWS);
             let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
@@ -1275,7 +1369,8 @@ impl Game {
             WHITE,
             Align::Center,
         );
-        let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
+        let first = first_row(self.mod_row, MOD_ROWS);
+        draw_paging(c, self.mod_row, self.packs.len(), MOD_ROWS);
         for (row, i) in (first..self.packs.len().min(first + MOD_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, MOD_ROWS);
             let p = &self.packs[i];
@@ -1786,8 +1881,9 @@ impl Game {
                     WHITE,
                 );
             }
-            let lines = wrapped(text, HOW_TO_SIZE, HOW_TO_ROOM, 2).len() as f32;
-            let top = y + (HOW_TO_H - 12.0 - lines * HOW_TO_SIZE * 1.25) / 2.0 + 2.0;
+            let shown = crate::comfort::text(HOW_TO_SIZE);
+            let lines = wrapped(text, shown, HOW_TO_ROOM, 2).len() as f32;
+            let top = y + (HOW_TO_H - 12.0 - lines * shown * 1.25) / 2.0 + 2.0;
             wrap_label(
                 c,
                 text,
@@ -2044,8 +2140,9 @@ fn draw_share(c: &mut Canvas) {
     }
 }
 
-/// Draws `text` within `room` pixels: smaller, down to two thirds of `size`, then cut short, keeping its middle where
-/// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
+/// Draws `text` within `room` pixels at the player's text size: smaller, down to two thirds of `size`, then cut short,
+/// keeping its middle where a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured
+/// until it's drawn.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fit_label(
     c: &mut Canvas,
@@ -2057,8 +2154,25 @@ pub(crate) fn fit_label(
     color: Color,
     align: Align,
 ) {
-    let (text, fits) = fitted(text, size, room, size * 2.0 / 3.0);
-    c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
+    let (text, fits) = fitted(text, crate::comfort::text(size), room, size * 2.0 / 3.0);
+    c.label_exact(text, x, y + (size - fits) / 2.0, fits, color, align);
+}
+
+/// Draws `text` at the player's text size, cut short with an ellipsis where it would pass `room` pixels.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cut_label(
+    c: &mut Canvas,
+    text: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    room: f32,
+    color: Color,
+    align: Align,
+) {
+    let shown = crate::comfort::text(size);
+    let (text, _) = fitted(text, shown, room, shown);
+    c.label_exact(text, x, y - (shown - size) / 2.0, shown, color, align);
 }
 
 /// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
@@ -2075,12 +2189,13 @@ pub(crate) fn wrap_label(
     color: Color,
     align: Align,
 ) {
-    for (i, line) in wrapped(text, size, room, lines).into_iter().enumerate() {
+    let shown = crate::comfort::text(size);
+    for (i, line) in wrapped(text, shown, room, lines).into_iter().enumerate() {
         fit_label(
             c,
             &line,
             x,
-            y + i as f32 * size * 1.25,
+            y + (shown - size) / 2.0 + i as f32 * shown * 1.25,
             size,
             room,
             color,
@@ -2108,7 +2223,7 @@ pub(crate) fn wrapped(text: &str, size: f32, room: f32, lines: usize) -> Vec<Str
 }
 
 /// A label's width per pixel of size, roughly, for the font's average letter.
-const EM: f32 = 0.56;
+pub(crate) const EM: f32 = 0.56;
 
 /// `text` and a size, from `size` down to `least`, that fit `room` pixels, cut short with an ellipsis if even `least`
 /// doesn't.

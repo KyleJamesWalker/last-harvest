@@ -56,6 +56,46 @@ pub struct Save {
     pub mods_off: ModsOff,
     /// Whether the player shares play stats and crash reports.
     pub metrics: Consent,
+    /// Camera shake, recoil and the punch-in on big hits.
+    pub shake: bool,
+    /// Bright lights from shots and blasts, and the screen-wide flashes of a hit or a screenshot.
+    pub flashes: bool,
+    pub text: TextSize,
+}
+
+/// How large the game draws its small text; titles keep their size.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextSize {
+    #[default]
+    Normal,
+    Large,
+}
+
+impl TextSize {
+    const ALL: [TextSize; 2] = [TextSize::Normal, TextSize::Large];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            TextSize::Normal => "normal",
+            TextSize::Large => "large",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            TextSize::Normal => "Normal",
+            TextSize::Large => "Large",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|t| t.key() == key)
+    }
+
+    /// `by` along the sizes, wrapping.
+    pub fn step(self, by: i32) -> Self {
+        Self::ALL[(self as i32 + by).rem_euclid(Self::ALL.len() as i32) as usize]
+    }
 }
 
 /// The player's answer to sharing play stats and crash reports. Only `Yes` shares anything.
@@ -400,6 +440,9 @@ impl Default for Save {
             joined: None,
             mods_off: ModsOff::default(),
             metrics: Consent::Unasked,
+            shake: true,
+            flashes: true,
+            text: TextSize::Normal,
         }
     }
 }
@@ -431,7 +474,7 @@ impl Save {
             Consent::No => controls += "metrics=off\n",
         }
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\ndifficulty={}\nenemies_off={}\nplayer={}\nmap={}\nhow_to={}\n{controls}{}{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\nshake={}\nflashes={}\ntext={}\ndifficulty={}\nenemies_off={}\nplayer={}\nmap={}\nhow_to={}\n{controls}{}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -441,6 +484,9 @@ impl Save {
             on_off(self.corner_map),
             if self.touch_grenades { "touch" } else { "pad" },
             self.touch.key(),
+            on_off(self.shake),
+            on_off(self.flashes),
+            self.text.key(),
             self.difficulty.key(),
             off_ids(self.enemies_off),
             self.player.as_str(),
@@ -558,6 +604,9 @@ impl Save {
                 "corner_map" => save.corner_map = value != "off",
                 "grenades" => save.touch_grenades = value != "pad",
                 "touch" => save.touch = TouchControls::from_key(value).unwrap_or(save.touch),
+                "shake" => save.shake = value != "off",
+                "flashes" => save.flashes = value != "off",
+                "text" => save.text = TextSize::from_key(value).unwrap_or(save.text),
                 "best" => legacy.best = value.parse().unwrap_or(legacy.best),
                 "difficulty" => {
                     save.difficulty = Difficulty::from_key(value).unwrap_or(save.difficulty)
@@ -716,6 +765,9 @@ mod tests {
             relay: Relay::new("wss://relay.example.com"),
             hosted: last_harvest_lobby::RoomCode::parse("ACDEF").ok(),
             joined: last_harvest_lobby::RoomCode::parse("FEDCA").ok(),
+            shake: false,
+            flashes: false,
+            text: TextSize::Large,
             ..Save::default()
         };
         assert!(save.hosted.is_some() && save.joined.is_some());
@@ -737,6 +789,42 @@ mod tests {
             ..Records::default()
         };
         assert_eq!(Save::parse(&save.to_text()), save);
+    }
+
+    #[test]
+    fn shake_flashes_and_text_size_round_trip_and_an_old_or_odd_save_keeps_the_defaults() {
+        let old = Save::parse("volume=3\nrumble=off\nlayout=one\ncorner_map=off\n");
+        assert!(old.shake && old.flashes, "on in a save from before them");
+        assert_eq!(old.text, TextSize::Normal);
+        assert_eq!(old.volume, 3, "and the rest still loads");
+        let odd = Save::parse("shake=\nflashes=dim\ntext=huge\n");
+        assert!(odd.shake && odd.flashes && odd.text == TextSize::Normal);
+        for (shake, flashes, text) in [
+            (false, true, TextSize::Normal),
+            (true, false, TextSize::Normal),
+            (true, true, TextSize::Large),
+        ] {
+            let save = Save {
+                shake,
+                flashes,
+                text,
+                ..Save::default()
+            };
+            let back = Save::parse(&save.to_text());
+            assert_eq!(
+                (back.shake, back.flashes, back.text),
+                (shake, flashes, text)
+            );
+        }
+        let text = Save::default().to_text();
+        assert!(
+            text.contains("shake=on\n")
+                && text.contains("flashes=on\n")
+                && text.contains("text=normal\n"),
+            "{text}"
+        );
+        assert_eq!(TextSize::Normal.step(1), TextSize::Large);
+        assert_eq!(TextSize::Normal.step(-1), TextSize::Large, "wraps");
     }
 
     #[test]

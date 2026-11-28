@@ -268,8 +268,31 @@ impl Canvas {
         });
     }
 
-    /// TrueType text. `text` and `text_centered` draw the 3x5 bitmap font instead.
+    /// TrueType text at the player's text size, as far as it still fits across the canvas, keeping the middle of a
+    /// line of `size` at `y`. `text` and `text_centered` draw the 3x5 bitmap font instead.
     pub fn label(
+        &mut self,
+        text: impl Into<String>,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        align: Align,
+    ) {
+        let text = text.into();
+        let width = self.size.map_or(SCREEN_W, |s| s[0]);
+        let room = match align {
+            Align::Left => width - x,
+            Align::Center => 2.0 * x.min(width - x),
+            Align::Right => x,
+        };
+        let fits = room / (text.chars().count().max(1) as f32 * crate::menu::EM);
+        let shown = crate::comfort::text(size).min(fits).max(size);
+        self.label_exact(text, x, y - (shown - size) / 2.0, shown, color, align);
+    }
+
+    /// TrueType text at exactly `size`, whatever the player's text size.
+    pub(crate) fn label_exact(
         &mut self,
         text: impl Into<String>,
         x: f32,
