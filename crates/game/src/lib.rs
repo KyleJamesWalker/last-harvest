@@ -282,6 +282,8 @@ pub struct Game {
     metrics_offered: bool,
     /// The platform's overlay covers the game.
     overlay: bool,
+    /// Start went in for the overlay and the run has yet to show its pause, which an online client waits on the host for.
+    overlay_paused: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -365,6 +367,7 @@ impl Game {
             asks: Vec::new(),
             metrics_offered: false,
             overlay: false,
+            overlay_paused: false,
         }
     }
 
@@ -1037,7 +1040,9 @@ impl Game {
             None => input,
         };
         let mut moused = self.through_mouse(input);
-        if self.overlay && self.run_in_play() {
+        if !self.overlay || !self.run_in_play() {
+            self.overlay_paused = false;
+        } else if !std::mem::replace(&mut self.overlay_paused, true) {
             moused.pressed |= Buttons::START;
         }
         let input = &moused;
@@ -3259,6 +3264,17 @@ mod tests {
         assert_eq!(game.page, Page::Settings);
         press(&mut game, Buttons::B);
         assert!(game.page == Page::Main && menu_open(&game));
+
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        game.set_overlay(true);
+        for _ in 0..5 {
+            game.update_all(&[Input::default(), Input::default()], 0.016);
+            assert!(menu_open(&game), "a split-screen run pauses and stays so");
+        }
     }
 
     #[test]
