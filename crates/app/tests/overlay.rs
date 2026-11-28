@@ -1,7 +1,7 @@
 //! The platform's overlay pauses a run in play, which stays paused once it closes; menus carry on as before.
 
 use last_harvest::platform::{self, Hooks, Recorder};
-use last_harvest_game::{Buttons, Game, Input};
+use last_harvest_game::{Buttons, Consent, Game, Input, Save};
 
 /// One shell frame: the game's update, then the platform served, `dt` seconds long.
 fn frame(game: &mut Game, hooks: &mut Hooks, pressed: Buttons, dt: f32) {
@@ -26,6 +26,11 @@ fn the_overlay_pauses_a_run_in_play_until_the_player_resumes_and_leaves_menus_al
     let seen = Recorder::new();
     let mut hooks = Hooks::new(Box::new(seen.clone()), None);
     let mut game = Game::new(1);
+    game.load(Save {
+        metrics: Consent::No,
+        how_to_seen: true,
+        ..Save::default()
+    });
 
     seen.set_overlay(true);
     frames(&mut game, &mut hooks, 5);
