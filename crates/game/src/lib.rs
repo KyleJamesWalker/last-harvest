@@ -280,6 +280,10 @@ pub struct Game {
     asks: Vec<Ask>,
     /// The platform has somewhere to send play stats, so the game asks the player whether to share them.
     metrics_offered: bool,
+    /// The platform's overlay covers the game.
+    overlay: bool,
+    /// Start went in for the overlay and the run has yet to show its pause, which an online client waits on the host for.
+    overlay_paused: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -362,12 +366,24 @@ impl Game {
             seat_looks: [None; SEATS],
             asks: Vec::new(),
             metrics_offered: false,
+            overlay: false,
+            overlay_paused: false,
         }
     }
 
     /// The platform has a sink for play stats: the title asks once whether to share them, and Settings offers it.
     pub fn set_metrics_offered(&mut self, on: bool) {
         self.metrics_offered = on;
+    }
+
+    /// The platform's overlay is open: while it is, a run in play gets Start, so it pauses and stays paused after.
+    pub fn set_overlay(&mut self, open: bool) {
+        self.overlay = open;
+    }
+
+    /// A run is in play with no menu, photo mode or settings over it, so Start pauses it.
+    fn run_in_play(&self) -> bool {
+        matches!(&self.state, State::Harvest(h) if self.page != Page::Settings && h.escape() == Buttons::START)
     }
 
     /// Drains what the game asked of the platform's hooks; the app hands each to its backend.
@@ -1023,7 +1039,12 @@ impl Game {
             }
             None => input,
         };
-        let moused = self.through_mouse(input);
+        let mut moused = self.through_mouse(input);
+        if !self.overlay || !self.run_in_play() {
+            self.overlay_paused = false;
+        } else if !std::mem::replace(&mut self.overlay_paused, true) {
+            moused.pressed |= Buttons::START;
+        }
         let input = &moused;
         self.paused = input.lid_closed;
         self.input = *input;
@@ -3210,6 +3231,50 @@ mod tests {
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Main);
         assert!(matches!(game.state, State::Harvest(_)));
+    }
+
+    #[test]
+    fn the_platform_overlay_pauses_play_once_and_leaves_the_menus_and_cards_over_it_alone() {
+        let menu_open = |game: &Game| matches!(&game.state, State::Harvest(h) if h.menu_open());
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
+        if let State::Harvest(h) = &mut game.state {
+            h.deal_cards_with_rerolls(0);
+        }
+        game.set_overlay(true);
+        for _ in 0..5 {
+            press(&mut game, Buttons::NONE);
+        }
+        assert!(matches!(&game.state, State::Harvest(h) if h.choosing() && !h.menu_open()));
+
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
+        game.set_overlay(true);
+        for _ in 0..5 {
+            press(&mut game, Buttons::NONE);
+            assert!(menu_open(&game), "paused, and held open frame after frame");
+        }
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        for _ in 0..5 {
+            press(&mut game, Buttons::NONE);
+        }
+        assert_eq!(game.page, Page::Settings);
+        press(&mut game, Buttons::B);
+        assert!(game.page == Page::Main && menu_open(&game));
+
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        game.set_overlay(true);
+        for _ in 0..5 {
+            game.update_all(&[Input::default(), Input::default()], 0.016);
+            assert!(menu_open(&game), "a split-screen run pauses and stays so");
+        }
     }
 
     #[test]

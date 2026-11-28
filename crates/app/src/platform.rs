@@ -44,6 +44,7 @@ impl Hooks {
 pub fn serve(game: &mut Game, hooks: &mut Hooks, dt: f32) {
     let platform = hooks.backend.as_mut();
     platform.tick();
+    game.set_overlay(platform.overlay_open());
     let frame = FRAME.get();
     FRAME.set(frame.wrapping_add(1));
     if frame.is_multiple_of(GLYPH_EVERY) {
