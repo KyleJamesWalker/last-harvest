@@ -473,9 +473,11 @@ impl Unlock {
     pub fn text(self) -> String {
         match self {
             Unlock::Start => "Ready from the start".into(),
+            Unlock::Kills(1) => "Kill 1 zombie in all".into(),
             Unlock::Kills(n) => format!("Kill {n} zombies in all"),
             Unlock::Night(s) => format!("Survive {}:{:02} in one night", s / 60, s % 60),
             Unlock::Level(n) => format!("Reach level {n} in one night"),
+            Unlock::Nights(1) => "Play 1 night".into(),
             Unlock::Nights(n) => format!("Play {n} nights"),
             Unlock::Dawns(1) => "Survive until dawn".into(),
             Unlock::Dawns(n) => format!("Survive until dawn {n} times"),
@@ -1927,6 +1929,32 @@ mod tests {
         let fresh = Progress::default();
         assert!(Unlock::Kills(100).effort(&fresh) < Unlock::Kills(500).effort(&fresh));
         assert!(Unlock::Night(120).effort(&fresh) < Unlock::Dawns(1).effort(&fresh));
+    }
+
+    #[test]
+    fn unlock_text_counts_one_in_the_singular_and_more_in_the_plural() {
+        let said = |u: Unlock| u.text();
+        assert_eq!(said(Unlock::Nights(1)), "Play 1 night");
+        assert_eq!(said(Unlock::Nights(10)), "Play 10 nights");
+        assert_eq!(said(Unlock::Kills(1)), "Kill 1 zombie in all");
+        assert_eq!(said(Unlock::Kills(100)), "Kill 100 zombies in all");
+        assert_eq!(said(Unlock::Dawns(1)), "Survive until dawn");
+        assert_eq!(said(Unlock::Dawns(3)), "Survive until dawn 3 times");
+        assert_eq!(said(Unlock::Breakers(1)), "Break a weapon past its top");
+        assert_eq!(
+            said(Unlock::Breakers(2)),
+            "Break a weapon past its top in 2 nights"
+        );
+        assert_eq!(
+            said(Unlock::BreakerDawns(1)),
+            "Break a weapon past its top, then survive until dawn"
+        );
+        assert_eq!(
+            said(Unlock::BreakerDawns(2)),
+            "Break a weapon past its top and survive until dawn 2 times"
+        );
+        assert_eq!(said(Unlock::Level(1)), "Reach level 1 in one night");
+        assert_eq!(said(Unlock::Night(61)), "Survive 1:01 in one night");
     }
 
     #[test]
