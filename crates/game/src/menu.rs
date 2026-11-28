@@ -208,32 +208,43 @@ pub(crate) fn control_row(row: usize) -> [f32; 4] {
     setting_row(row, CONTROL_ROWS)
 }
 
-/// The first row shown of a list `window` rows tall with row `sel` chosen.
-fn first_row(sel: usize, window: usize) -> usize {
-    sel.saturating_sub(window - 1)
-}
-
-/// The row of `n` that a tap at `p` on the paging buttons chooses: a window up or down from `sel`.
-fn paged(p: [f32; 2], sel: usize, n: usize, window: usize) -> Option<usize> {
-    if n <= window {
-        None
-    } else if inside(p, PAGE_UP) && sel > 0 {
-        Some(sel.saturating_sub(window))
-    } else if inside(p, PAGE_DOWN) && sel + 1 < n {
-        Some((sel + window).min(n - 1))
+/// The first row shown of `n` in a window `window` rows tall that showed from `top`: it moves only as far as keeps
+/// row `sel` in view.
+pub(crate) fn top_row(top: usize, sel: usize, n: usize, window: usize) -> usize {
+    let top = if sel < top {
+        sel
+    } else if sel >= top + window {
+        sel + 1 - window
     } else {
-        None
-    }
+        top
+    };
+    top.min(n.saturating_sub(window))
 }
 
-/// The paging buttons beside Back, on a list of `n` longer than its `window`.
-fn draw_paging(c: &mut Canvas, sel: usize, n: usize, window: usize) {
+/// The chosen row and the first row shown after a tap at `p` on the paging buttons, which move the window a whole
+/// window up or down from `top`, keeping the chosen row's place in it.
+fn paged(p: [f32; 2], sel: usize, top: usize, n: usize, window: usize) -> Option<(usize, usize)> {
+    let last = n.saturating_sub(window);
+    let to = if n <= window {
+        return None;
+    } else if inside(p, PAGE_UP) && top > 0 {
+        top.saturating_sub(window)
+    } else if inside(p, PAGE_DOWN) && top < last {
+        (top + window).min(last)
+    } else {
+        return None;
+    };
+    Some(((to + sel.saturating_sub(top)).min(n - 1), to))
+}
+
+/// The paging buttons beside Back, on a list of `n` longer than its `window`, showing from `top`.
+fn draw_paging(c: &mut Canvas, top: usize, n: usize, window: usize) {
     if n <= window {
         return;
     }
     for (rect, text, live) in [
-        (PAGE_UP, "^   Up", sel > 0),
-        (PAGE_DOWN, "Down   v", sel + 1 < n),
+        (PAGE_UP, "^   Up", top > 0),
+        (PAGE_DOWN, "Down   v", top + window < n),
     ] {
         let [x, y, w, h] = rect;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
@@ -253,6 +264,7 @@ fn draw_paging(c: &mut Canvas, sel: usize, n: usize, window: usize) {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Rebind {
     row: usize,
+    top: usize,
     waiting: f32,
     note: String,
     note_t: f32,
@@ -491,6 +503,7 @@ impl Game {
         self.settings_in_run = in_run;
         self.rebind = None;
         self.setting = 0;
+        self.setting_top = 0;
         self.reset_armed = 0.0;
     }
 
@@ -511,14 +524,16 @@ impl Game {
         }
         let step = input.pressed.contains(Buttons::DOWN) as i32
             - input.pressed.contains(Buttons::UP) as i32;
+        let (n, shown) = (list.len(), list.len().min(SET_ROWS));
         if step != 0 {
             self.setting = (self.setting as i32 + step).rem_euclid(list.len() as i32) as usize;
+            self.setting_top = top_row(self.setting_top, self.setting, n, SET_ROWS);
             self.reset_armed = 0.0;
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
             return false;
         }
-        let (n, shown) = (list.len(), list.len().min(SET_ROWS));
-        let first = first_row(self.setting, SET_ROWS);
+        let first = top_row(self.setting_top, self.setting, n, SET_ROWS);
+        self.setting_top = first;
         let row_at = |p: [f32; 2]| {
             (first..n.min(first + SET_ROWS)).find(|&i| inside(p, setting_row(i - first, shown)))
         };
@@ -531,8 +546,8 @@ impl Game {
             - input.pressed.contains(Buttons::LEFT) as i32;
         let mut press = input.pressed.contains(Buttons::A);
         if let Some(p) = tapped {
-            if let Some(i) = paged(p, self.setting, n, SET_ROWS) {
-                self.setting = i;
+            if let Some((i, top)) = paged(p, self.setting, first, n, SET_ROWS) {
+                (self.setting, self.setting_top) = (i, top);
                 self.reset_armed = 0.0;
                 self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
                 return false;
@@ -595,13 +610,13 @@ impl Game {
             }
             Setting::Enemies if by > 0 || press => {
                 self.page = Page::Enemies;
-                self.enemy = 0;
+                (self.enemy, self.enemy_top) = (0, 0);
                 self.sounds.push(Sfx::Tick(9));
                 return false;
             }
             Setting::Mods if by > 0 || press => {
                 self.page = Page::Mods;
-                self.mod_row = 0;
+                (self.mod_row, self.mod_top) = (0, 0);
                 self.sounds.push(Sfx::Tick(9));
                 return false;
             }
@@ -665,15 +680,17 @@ impl Game {
             - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             r.row = (r.row as i32 + step).rem_euclid(rows as i32) as usize;
+            r.top = top_row(r.top, r.row, rows, CONTROL_ROWS);
             self.sounds.push(Sfx::Tick(r.row as u8 * 2));
             return false;
         }
-        if let Some(i) = tapped.and_then(|p| paged(p, r.row, rows, CONTROL_ROWS)) {
-            r.row = i;
+        let first = top_row(r.top, r.row, rows, CONTROL_ROWS);
+        r.top = first;
+        if let Some((i, top)) = tapped.and_then(|p| paged(p, r.row, first, rows, CONTROL_ROWS)) {
+            (r.row, r.top) = (i, top);
             self.sounds.push(Sfx::Tick(r.row as u8 * 2));
             return false;
         }
-        let first = first_row(r.row, CONTROL_ROWS);
         let chosen = match tapped {
             Some(p) => (first..rows.min(first + CONTROL_ROWS))
                 .find(|&i| inside(p, setting_row(i - first, CONTROL_ROWS))),
@@ -709,15 +726,18 @@ impl Game {
             - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.enemy = (self.enemy as i32 + step).rem_euclid(count as i32) as usize;
+            self.enemy_top = top_row(self.enemy_top, self.enemy, count, ENEMY_ROWS);
             self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
             return false;
         }
-        if let Some(i) = tapped.and_then(|p| paged(p, self.enemy, count, ENEMY_ROWS)) {
-            self.enemy = i;
+        let first = top_row(self.enemy_top, self.enemy, count, ENEMY_ROWS);
+        self.enemy_top = first;
+        if let Some((i, top)) = tapped.and_then(|p| paged(p, self.enemy, first, count, ENEMY_ROWS))
+        {
+            (self.enemy, self.enemy_top) = (i, top);
             self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
             return false;
         }
-        let first = first_row(self.enemy, ENEMY_ROWS);
         if let Some(i) = input
             .hover
             .and_then(|p| {
@@ -771,15 +791,18 @@ impl Game {
             - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.mod_row = (self.mod_row as i32 + step).rem_euclid(count as i32) as usize;
+            self.mod_top = top_row(self.mod_top, self.mod_row, count, MOD_ROWS);
             self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
             return false;
         }
-        if let Some(i) = tapped.and_then(|p| paged(p, self.mod_row, count, MOD_ROWS)) {
-            self.mod_row = i;
+        let first = top_row(self.mod_top, self.mod_row, count, MOD_ROWS);
+        self.mod_top = first;
+        if let Some((i, top)) = tapped.and_then(|p| paged(p, self.mod_row, first, count, MOD_ROWS))
+        {
+            (self.mod_row, self.mod_top) = (i, top);
             self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
             return false;
         }
-        let first = first_row(self.mod_row, MOD_ROWS);
         if let Some(i) = input
             .hover
             .and_then(|p| {
@@ -930,7 +953,7 @@ impl Game {
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Settings", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let list = self.settings_list();
-        let first = first_row(self.setting, SET_ROWS);
+        let first = top_row(self.setting_top, self.setting, list.len(), SET_ROWS);
         let shown = list.len().min(SET_ROWS);
         for (i, &s) in list.iter().enumerate().skip(first).take(SET_ROWS) {
             let [x, y, w, h] = setting_row(i - first, shown);
@@ -1152,7 +1175,7 @@ impl Game {
                 );
             }
         }
-        draw_paging(c, self.setting, list.len(), SET_ROWS);
+        draw_paging(c, first, list.len(), SET_ROWS);
         back_button(c);
     }
 
@@ -1198,8 +1221,8 @@ impl Game {
         );
         let pulse = 0.5 + 0.5 * fm::sin(self.clock * 6.0).abs();
         let rows = ACTIONS.len() + 1;
-        let first = first_row(r.row, CONTROL_ROWS);
-        draw_paging(c, r.row, rows, CONTROL_ROWS);
+        let first = top_row(r.top, r.row, rows, CONTROL_ROWS);
+        draw_paging(c, first, rows, CONTROL_ROWS);
         for (row, i) in (first..rows.min(first + CONTROL_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, CONTROL_ROWS);
             let sel = i == r.row;
@@ -1289,8 +1312,8 @@ impl Game {
         let r = roster();
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Enemies", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
-        let first = first_row(self.enemy, ENEMY_ROWS);
-        draw_paging(c, self.enemy, r.enemies.len(), ENEMY_ROWS);
+        let first = top_row(self.enemy_top, self.enemy, r.enemies.len(), ENEMY_ROWS);
+        draw_paging(c, first, r.enemies.len(), ENEMY_ROWS);
         for (row, i) in (first..r.enemies.len().min(first + ENEMY_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, ENEMY_ROWS);
             let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
@@ -1369,8 +1392,8 @@ impl Game {
             WHITE,
             Align::Center,
         );
-        let first = first_row(self.mod_row, MOD_ROWS);
-        draw_paging(c, self.mod_row, self.packs.len(), MOD_ROWS);
+        let first = top_row(self.mod_top, self.mod_row, self.packs.len(), MOD_ROWS);
+        draw_paging(c, first, self.packs.len(), MOD_ROWS);
         for (row, i) in (first..self.packs.len().min(first + MOD_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, MOD_ROWS);
             let p = &self.packs[i];

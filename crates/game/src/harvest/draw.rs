@@ -1006,7 +1006,7 @@ impl Harvest {
                         c.label(
                             line,
                             SCREEN_W / 2.0,
-                            line_y + 92.0 + k as f32 * 28.0,
+                            line_y + 92.0 + k as f32 * 28.0 * crate::comfort::text(24.0) / 24.0,
                             24.0,
                             [1.0, 1.0, 1.0, a],
                             Align::Center,
@@ -1045,8 +1045,10 @@ impl Harvest {
     fn damage_table(&self, c: &mut Canvas, a: f32) {
         let tally = &self.juice.tally;
         let rows = tally.rows(self.viewer);
-        let (x, top, size, row_h) = (24.0, 196.0, 24.0, 26.0);
-        let (damage_x, dps_x) = (x + 290.0, x + 410.0);
+        let size = 24.0;
+        let k = crate::comfort::text(size) / size;
+        let (x, top, row_h) = (24.0, 196.0, 26.0 * k);
+        let (damage_x, dps_x) = (x + 290.0 * k, x + 410.0 * k);
         let lines = rows.len() as f32 + 2.0;
         c.rect(
             x - 8.0,
@@ -1661,14 +1663,6 @@ impl Harvest {
                 [name_color[0], name_color[1], name_color[2], alpha],
                 Align::Left,
             );
-            c.label(
-                def.change(from, to),
-                left,
-                y + 62.0,
-                26.0,
-                [1.0, 1.0, 1.0, 0.75 * alpha],
-                Align::Left,
-            );
             let tag = match def.kind {
                 Kind::Filler => String::new(),
                 _ if self.favored == Some(ch.up) => format!("FAVORED  LV {to}"),
@@ -1696,8 +1690,24 @@ impl Harvest {
             } else {
                 y + 16.0
             };
+            let tag = format!("{zone}  {tag}");
+            let blurb = def.change(from, to);
+            let em = crate::menu::EM;
+            let mut room = x + w - 28.0 - left;
+            if ch.rare || ch.found {
+                room -= tag.chars().count() as f32 * em * crate::comfort::text(26.0) + 24.0;
+            }
+            c.label_in(
+                &blurb,
+                left,
+                y + 62.0,
+                26.0,
+                room.max(blurb.chars().count() as f32 * em * 26.0),
+                [1.0, 1.0, 1.0, 0.75 * alpha],
+                Align::Left,
+            );
             c.label(
-                format!("{zone}  {tag}"),
+                tag,
                 x + w - 28.0,
                 tag_y,
                 26.0,

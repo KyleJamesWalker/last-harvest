@@ -224,6 +224,10 @@ pub struct Game {
     /// The highlighted kind on the Enemies page.
     enemy: usize,
     mod_row: usize,
+    /// The first row the Settings, Enemies and Mod packs lists show.
+    setting_top: usize,
+    enemy_top: usize,
+    mod_top: usize,
     /// The mod packs found as the game started, on or off.
     packs: Vec<data::FoundPack>,
     /// Settings is open over a paused run, rather than from the title.
@@ -337,6 +341,9 @@ impl Game {
             setting: 0,
             enemy: 0,
             mod_row: 0,
+            setting_top: 0,
+            enemy_top: 0,
+            mod_top: 0,
             packs: data::load_report().packs.clone(),
             settings_in_run: false,
             shot: false,
@@ -3207,9 +3214,10 @@ mod tests {
         game.draw();
         let tap = |game: &mut Game, s: menu::Setting| {
             let list = game.settings_list();
-            let first = game.setting.saturating_sub(9);
+            let first = game.setting_top;
             let at = list.iter().position(|&x| x == s).unwrap();
             let [x, y, _, h] = menu::setting_row(at - first, list.len().min(10));
+            let top = game.setting_top;
             game.update(
                 &Input {
                     touch: Some([x + 40.0, y + h / 2.0]),
@@ -3219,6 +3227,7 @@ mod tests {
                 0.016,
             );
             game.update(&Input::default(), 0.016);
+            assert_eq!(game.setting_top, top, "a tap on a row shown never scrolls");
         };
         tap(&mut game, menu::Setting::Shake);
         tap(&mut game, menu::Setting::Flashes);
@@ -3301,6 +3310,74 @@ mod tests {
             h.deal_cards_with_rerolls(0);
         }
         shot(&mut game, "cards");
+        for won in [true, false] {
+            let mut game = Game::new(1);
+            game.load(Save {
+                text,
+                ..game.save()
+            });
+            game.open(Scene::Harvest);
+            for _ in 0..30 {
+                game.update(&Input::default(), 0.1);
+            }
+            if let State::Harvest(h) = &mut game.state {
+                h.end_for_test(won, 30.0);
+            }
+            let f = game.draw();
+            out.push((format!("over {won} top"), f.top));
+        }
+        out
+    }
+
+    /// The estimated box of each label left showing on a screen, as left, top, right and bottom, without the line's
+    /// leading; what an opaque page drew over is left out.
+    fn text_boxes(c: &Canvas) -> Vec<(String, [f32; 4])> {
+        let covered = c
+            .shapes
+            .iter()
+            .rposition(|s| {
+                matches!(s, Shape::Rect { x, y, w, h, color }
+                    if *x <= 0.0 && *y <= 0.0 && *w >= SCREEN_W && *h >= SCREEN_H && color[3] >= 1.0)
+            })
+            .map_or(0, |i| i + 1);
+        c.shapes[covered..]
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text {
+                    text,
+                    x,
+                    y,
+                    size,
+                    align,
+                    ..
+                } if !text.trim().is_empty() => {
+                    let w = text.chars().count() as f32 * menu::EM * size;
+                    let left = match align {
+                        Align::Left => *x,
+                        Align::Center => x - w / 2.0,
+                        Align::Right => x - w,
+                    };
+                    let lead = size * 0.15;
+                    Some((text.clone(), [left, y + lead, left + w, y + size - lead]))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Each pair of labels on one screen whose boxes overlap, by screen and the two texts.
+    fn overlapping(screens: &[(String, Canvas)]) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        for (name, c) in screens {
+            let boxes = text_boxes(c);
+            for (i, (a, p)) in boxes.iter().enumerate() {
+                for (b, q) in &boxes[i + 1..] {
+                    if p[0] < q[2] && q[0] < p[2] && p[1] < q[3] && q[1] < p[3] {
+                        out.push((name.clone(), a.clone(), b.clone()));
+                    }
+                }
+            }
+        }
         out
     }
 
@@ -3358,6 +3435,19 @@ mod tests {
             .filter(|t| !was.contains(t))
             .collect();
         assert!(now.is_empty(), "{now:?}");
+        assert!(
+            large
+                .iter()
+                .filter(|(name, _)| name.starts_with("over"))
+                .all(|(_, c)| text_boxes(c).iter().any(|(t, _)| t == "Whole run")),
+            "the end of a run shows its damage table"
+        );
+        let crowded = overlapping(&normal);
+        let now: Vec<_> = overlapping(&large)
+            .into_iter()
+            .filter(|t| !crowded.contains(t))
+            .collect();
+        assert!(now.is_empty(), "labels large text runs together: {now:?}");
         let cut = |screens: &[(String, Canvas)]| {
             screens
                 .iter()
@@ -3413,8 +3503,36 @@ mod tests {
         for _ in 0..3 {
             tap(&mut game, mid(menu::PAGE_DOWN));
         }
-        assert_eq!(game.setting, n - 1, "Down pages to the last row");
+        assert_eq!(game.setting_top, n - 10, "Down pages to the last window");
+        assert_eq!(game.setting, n - 10, "keeping the chosen row's place in it");
+        tap(&mut game, mid(menu::setting_row(9, 10)));
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Reset);
+        assert!(game.reset_armed > 0.0, "the last row's tap asks to reset");
+        game.update(
+            &Input {
+                hover: Some(mid(menu::setting_row(3, 10))),
+                ..Default::default()
+            },
+            0.016,
+        );
+        assert_eq!(
+            (game.setting, game.setting_top),
+            (n - 7, n - 10),
+            "pointing at a row shown chooses it without scrolling"
+        );
+        game.update(
+            &Input {
+                hover: Some(mid(menu::setting_row(0, 10))),
+                ..Default::default()
+            },
+            0.016,
+        );
+        game.update(&Input::default(), 0.016);
+        assert_eq!((game.setting, game.setting_top), (n - 10, n - 10));
+        press(&mut game, Buttons::UP);
+        assert_eq!(game.setting_top, n - 11, "Up past the top scrolls by one");
+        tap(&mut game, mid(menu::PAGE_DOWN));
+        game.setting = n - 1;
         let shown: Vec<String> = game
             .draw()
             .bottom
@@ -3429,7 +3547,7 @@ mod tests {
         for _ in 0..3 {
             tap(&mut game, mid(menu::PAGE_UP));
         }
-        assert_eq!(game.setting, 0);
+        assert_eq!((game.setting_top, game.setting), (0, 9));
 
         game.setting = game
             .settings_list()

@@ -279,13 +279,29 @@ impl Canvas {
         color: Color,
         align: Align,
     ) {
-        let text = text.into();
         let width = self.size.map_or(SCREEN_W, |s| s[0]);
         let room = match align {
             Align::Left => width - x,
             Align::Center => 2.0 * x.min(width - x),
             Align::Right => x,
         };
+        self.label_in(text, x, y, size, room, color, align);
+    }
+
+    /// A `label` that grows at the player's text size only as far as it fits `room` pixels across; it never draws
+    /// smaller than `size`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn label_in(
+        &mut self,
+        text: impl Into<String>,
+        x: f32,
+        y: f32,
+        size: f32,
+        room: f32,
+        color: Color,
+        align: Align,
+    ) {
+        let text = text.into();
         let fits = room / (text.chars().count().max(1) as f32 * crate::menu::EM);
         let shown = crate::comfort::text(size).min(fits).max(size);
         self.label_exact(text, x, y - (shown - size) / 2.0, shown, color, align);
