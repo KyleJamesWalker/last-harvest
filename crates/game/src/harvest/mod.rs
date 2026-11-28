@@ -1782,6 +1782,12 @@ impl Harvest {
         matches!(self.phase, Phase::LevelUp { .. })
     }
 
+    /// The night over `t` seconds ago, as won or lost.
+    #[cfg(test)]
+    pub(crate) fn end_for_test(&mut self, won: bool, t: f32) {
+        self.phase = Phase::Over { t, won };
+    }
+
     #[cfg(test)]
     pub(crate) fn deal_cards_with_rerolls(&mut self, rerolls: u32) {
         self.rerolls = rerolls;

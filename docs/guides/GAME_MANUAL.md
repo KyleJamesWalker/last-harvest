@@ -284,6 +284,9 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 | Screens | One or two screens for a run. Not shown on a phone. |
 | Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
+| Screen shake | Off holds the camera still: no shake, recoil or zoom punch on hits and blasts. |
+| Flashes | Off removes the light that shots and blasts throw on the ground, the rays from a gun's muzzle, the red flash over the screen and the lantern when you are hit, the lantern's flicker, and the white flash of a picked card or a screenshot. A hit zombie, prop or barrel still blinks, and the screen's edges still pulse red when you are nearly dead. |
+| Text size | Large draws small text up to 30% bigger, as far as it still fits; titles keep their size. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |
 | Mod packs | Each mod pack found, by name, with its file under it. A, Left, Right or a tap turns one on or off. Packs load as the game starts, so a change applies at the next start; until then the page marks each pack it will change. Shown only when there are packs. |
@@ -292,7 +295,7 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 | Share play stats | Only in builds that can send play stats. Sends play time, how runs end, the builds taken and crash reports, with nothing that names you or the device. The game asks once, at first launch; off deletes anything not yet sent. |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
-Settings from the pause menu leave out Enemies, Mod packs, Game folder, Online relay and Reset progress.
+Settings from the pause menu leave out Enemies, Mod packs, Game folder, Online relay and Reset progress. A list longer than the screen scrolls with Up and Down; the Up and Down buttons beside Back page it by touch.
 
 ### Play
 

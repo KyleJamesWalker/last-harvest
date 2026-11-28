@@ -131,6 +131,60 @@ mod tests {
     }
 
     #[test]
+    fn every_movable_button_has_a_job_on_the_controls_page_and_a_key() {
+        for b in BINDABLE {
+            assert_eq!(
+                ACTIONS.iter().filter(|a| a.0 == b).count(),
+                1,
+                "{b:?} is listed once"
+            );
+        }
+        let fixed = Buttons::UP
+            | Buttons::DOWN
+            | Buttons::LEFT
+            | Buttons::RIGHT
+            | Buttons::BACK
+            | Buttons::VOL_UP
+            | Buttons::VOL_DOWN;
+        let keys: Vec<Buttons> = (b'A'..=b'Z')
+            .map(|c| format!("Key{}", c as char))
+            .chain((0..10).map(|d| format!("Digit{d}")))
+            .chain((1..13).map(|f| format!("F{f}")))
+            .chain(
+                [
+                    "Space",
+                    "Tab",
+                    "Enter",
+                    "NumpadEnter",
+                    "Backspace",
+                    "ShiftLeft",
+                    "ShiftRight",
+                    "Semicolon",
+                    "Quote",
+                    "Home",
+                    "Minus",
+                    "Equal",
+                    "ArrowUp",
+                ]
+                .map(String::from),
+            )
+            .filter_map(|k| crate::key_button(&k))
+            .collect();
+        for &k in &keys {
+            assert!(
+                BINDABLE.contains(&k) || fixed.contains(k),
+                "{k:?} goes through the table or is a fixed key"
+            );
+        }
+        for b in BINDABLE {
+            assert!(
+                keys.contains(&b),
+                "{b:?} has a key, which a remap moves with its pad button"
+            );
+        }
+    }
+
+    #[test]
     fn binding_a_taken_button_swaps_the_two() {
         let mut c = Controls::default();
         assert_eq!(
