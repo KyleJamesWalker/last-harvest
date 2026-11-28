@@ -285,7 +285,7 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 | Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
 | Screen shake | Off holds the camera still: no shake, recoil or zoom punch on hits and blasts. |
-| Flashes | Off removes the bright lights of shots and blasts, the red flash of a hit, the low-health lantern flicker, and the white flash of a picked card or a screenshot. |
+| Flashes | Off removes the light that shots and blasts throw on the ground, the rays from a gun's muzzle, the red flash over the screen and the lantern when you are hit, the lantern's flicker, and the white flash of a picked card or a screenshot. A hit zombie, prop or barrel still blinks, and the screen's edges still pulse red when you are nearly dead. |
 | Text size | Large draws small text up to 30% bigger, as far as it still fits; titles keep their size. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |

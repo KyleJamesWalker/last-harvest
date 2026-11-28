@@ -1831,7 +1831,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
-    for f in &h.juice.flares {
+    for f in h.juice.flares.iter().filter(|_| comfort.flashes) {
         let at = world(f.pos) + Vec3::Y * (f.z * PX);
         if !near(at) {
             continue;
@@ -1903,11 +1903,12 @@ pub fn scene(h: &Harvest) -> CardScene {
     } else {
         0.0
     };
-    let lantern = if dying {
-        3.0 + 4.0 * turned
-    } else {
-        9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam
-    } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern =
+        if dying {
+            3.0 + 4.0 * turned
+        } else {
+            9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam
+        } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() * comfort.flashes as u8 as f32 - gutter);
     let sky = sky(h);
     let hurt = if comfort.flashes {
         h.juice.hurt / 0.35
@@ -1978,6 +1979,16 @@ mod tests {
         h.juice.shake(1.0);
         (h.juice.kick, h.juice.punch, h.juice.hurt) = (0.2, 8.0, 0.35);
         h.juice.flash(h.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
+        h.juice.flares.push(crate::harvest::juice::Flare {
+            pos: [h.me().pos[0] + 20.0, h.me().pos[1]],
+            z: 8.0,
+            dir: [1.0, 0.0],
+            size: 12.0,
+            color: [1.0, 1.0, 0.8],
+            age: 0.0,
+            life: 0.1,
+            art: None,
+        });
         comfort::set(Comfort::default());
         let felt = scene(&h);
         assert_ne!(felt.view_proj, still.view_proj, "on by default");
@@ -1991,6 +2002,10 @@ mod tests {
         comfort::set(Comfort::default());
         assert_eq!(calm.view_proj, still.view_proj);
         assert!(calm.flashes.is_empty());
+        assert!(
+            calm.cards.len() == still.cards.len() && felt.cards.len() > still.cards.len(),
+            "no muzzle flare"
+        );
         assert_eq!(calm.light_color, still.light_color, "no red pulse on a hit");
         assert!(h.juice.trauma > 0.0, "the run's own state is left alone");
     }
