@@ -33,6 +33,7 @@ build() {
     scp -q "$host:/usr/lib/libSDL2-2.0.so.0" "$sdl"
   fi
   cargo run -q -p last-harvest-pack
+  rustup target list --installed | grep -qx aarch64-unknown-linux-gnu || rustup target add aarch64-unknown-linux-gnu
   local sr="$PWD/.sysroot"
   # The device's libSDL2 needs its Mali driver, which only the device has; the binary loads both there.
   PKG_CONFIG="$PWD/scripts/pkg-config" PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_SYSROOT_DIR="$sr" PKG_CONFIG_LIBDIR="$sr/usr/lib/pkgconfig" \

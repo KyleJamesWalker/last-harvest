@@ -5,4 +5,5 @@ cd "$(dirname "$0")/.."
 sr="$PWD/.sysroot"
 export PKG_CONFIG="$PWD/scripts/pkg-config" PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_SYSROOT_DIR="$sr" PKG_CONFIG_LIBDIR="$sr/usr/lib/pkgconfig"
 export RUSTFLAGS="-L $sr/usr/lib"
+rustup target list --installed | grep -qx aarch64-unknown-linux-gnu || rustup target add aarch64-unknown-linux-gnu
 cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.38 -p last-harvest --no-default-features "$@"
