@@ -3358,6 +3358,24 @@ mod tests {
             .filter(|t| !was.contains(t))
             .collect();
         assert!(now.is_empty(), "{now:?}");
+        let cut = |screens: &[(String, Canvas)]| {
+            screens
+                .iter()
+                .flat_map(|(_, c)| &c.shapes)
+                .filter(|s| matches!(s, Shape::Text { text, .. } if text.ends_with("...")))
+                .count()
+        };
+        assert!(
+            cut(&large) <= cut(&normal),
+            "large text cuts nothing short that normal shows whole"
+        );
+        for (n, l) in normal.iter().zip(&large) {
+            let (a, b) = (
+                smallest(std::slice::from_ref(n)),
+                smallest(std::slice::from_ref(l)),
+            );
+            assert!(b >= a, "{}: {a} -> {b}", n.0);
+        }
         let (lo, hi) = (smallest(&normal), smallest(&large));
         assert!(hi > lo, "{lo} -> {hi}");
         assert!(

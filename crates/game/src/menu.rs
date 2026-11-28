@@ -1881,7 +1881,7 @@ impl Game {
                     WHITE,
                 );
             }
-            let shown = crate::comfort::text(HOW_TO_SIZE);
+            let shown = wrap_size(text, HOW_TO_SIZE, HOW_TO_ROOM, 2);
             let lines = wrapped(text, shown, HOW_TO_ROOM, 2).len() as f32;
             let top = y + (HOW_TO_H - 12.0 - lines * shown * 1.25) / 2.0 + 2.0;
             wrap_label(
@@ -2170,9 +2170,20 @@ pub(crate) fn cut_label(
     color: Color,
     align: Align,
 ) {
-    let shown = crate::comfort::text(size);
-    let (text, _) = fitted(text, shown, room, shown);
-    c.label_exact(text, x, y - (shown - size) / 2.0, shown, color, align);
+    let (text, fits) = fitted(text, crate::comfort::text(size), room, size);
+    c.label_exact(text, x, y - (fits - size) / 2.0, fits, color, align);
+}
+
+/// The player's text size for `text` wrapped to `lines` of `room`, or `size` where the larger one would leave a line
+/// to shrink or cut.
+pub(crate) fn wrap_size(text: &str, size: f32, room: f32, lines: usize) -> f32 {
+    let big = crate::comfort::text(size);
+    let fits = |l: &String| l.chars().count() as f32 * EM * big <= room;
+    if wrapped(text, big, room, lines).iter().all(fits) {
+        big
+    } else {
+        size
+    }
 }
 
 /// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
@@ -2189,15 +2200,14 @@ pub(crate) fn wrap_label(
     color: Color,
     align: Align,
 ) {
-    let shown = crate::comfort::text(size);
+    let shown = wrap_size(text, size, room, lines);
     for (i, line) in wrapped(text, shown, room, lines).into_iter().enumerate() {
-        fit_label(
-            c,
-            &line,
+        let (line, fits) = fitted(&line, shown, room, size * 2.0 / 3.0);
+        c.label_exact(
+            line,
             x,
-            y + (shown - size) / 2.0 + i as f32 * shown * 1.25,
-            size,
-            room,
+            y + (shown - fits) / 2.0 + i as f32 * shown * 1.25,
+            fits,
             color,
             align,
         );

@@ -1609,7 +1609,9 @@ impl Harvest {
                 ),
             };
             let fill = match picked {
-                Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
+                Some(p) if on && crate::comfort::get().flashes => {
+                    [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)]
+                }
                 _ if on => [1.0, 0.85, 0.3, 0.35],
                 _ => [1.0, 1.0, 1.0, 0.1 * alpha],
             };
